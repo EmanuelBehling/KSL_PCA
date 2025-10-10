@@ -1,0 +1,6 @@
+# Ignore everything
+*
+
+# But keep this file
+!PCA_claude.py
+!.gitignore
