@@ -8,3 +8,4 @@ A PCA that is tailored for Raman Data. The PCA code includes a number of functio
 4. Activate the environment "conda activate PCA_env" (should then change from (base) to (PCA_env))
 5. Install pip ("conda install pip")
 6. Download and install the requirements.txt from the main page (pip install -r /path/to/requirements.txt)
+
