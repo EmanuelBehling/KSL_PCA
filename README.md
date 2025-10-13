@@ -24,7 +24,7 @@ A PCA that is tailored for Raman Data. The PCA code includes a number of functio
 #Start the program
 1. Either open PCA_claude.py or PCA_GUI.py in your IDE and run it. PCA_claude is the coded version, so only recommended if you understand python basics.
 2. Alternatively (recommended for python newcomers): open the desktop shortcut and just type "python PCA_GUI.py"
-
+-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #What the program does
 #excel_to_pickle()
 1. The program converts an excel file into a much faster .pkl file. This can take minutes if your excel file is big, but you only have to do it once. At the GUI the pickle file hast the same name as your excel file, while you can specify the name in the code.
@@ -43,6 +43,15 @@ Performs a PCA with the given data and also colors the data point by a given cat
 4. Wheter you want to detect outliers. If True, you can choose the alpha value (outlier_alpha) and three options: 'show' only shows the outliers in the graph, 'hide' shows the graph with outliers removed and 'remove' deletes the outliers from further analysis. In the code you can also specify until which PC outliers shall be removed.
 5. You can color the scoreplot by a categorical variable of your choice via color_by.
 6. You can also choose the PCs of your scoreplot via pc_x and pc_y
+
+#plot_loadings()
+Plots the loadings of the given PCs. You can plot all loading combinations until PC of your choice via the multi_loading() function (Plot multiple loadings at the GUI).
+
+#test_pc_significance
+Performs statistical tests for a given categorical variable, PC and alpha. The statistical test is either a t-test if the chosen categorical data has only two categories or an ANOVA if there are more. multi_stat does the same but for multiple PCs at once.
+
+
+
 
 
 
