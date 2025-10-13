@@ -1,6 +1,15 @@
 # KSL_PCA
 🧠 KSL_PCA
 
+✂️ crop_data() (optional)
+
+Crops spectra within a specified wavenumber range.
+
+crop_data(data, lower_bound=600, upper_bound=1800)
+
+
+If no range is specified, the full spectrum is used.
+
 A PCA tool tailored for Raman and other spectral data.
 
 KSL_PCA can be run either directly in a Python IDE (such as Spyder or Jupyter Notebook) or through its built-in GUI.
