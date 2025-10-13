@@ -26,6 +26,7 @@ A PCA python code that is tailored for Raman or other spectral data. The program
 2. Alternatively (recommended for python newcomers): open the desktop shortcut and just type "python PCA_GUI.py"
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #What the program does
+
 #excel_to_pickle()
 1. The program converts an excel file into a much faster .pkl file. This can take minutes if your excel file is big, but you only have to do it once. At the GUI the pickle file hast the same name as your excel file, while you can specify the name in the code.
 
