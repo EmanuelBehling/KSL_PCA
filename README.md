@@ -1,27 +1,6 @@
 # 🧠 KSL_PCA
 
 A Principal Component Analysis (PCA) tool tailored for **Raman** and other spectral data.  
-It can be run in any Python IDE (e.g. Spyder, Jupyter Notebook) or via the included GUI.
-
-> **Note:**  
-> - **Categorical data** → non-numerical headers  
-> - **Spectral (Raman) data** → numerical headers (wavenumbers)
-
----
-
-## ⚙️ Installation
-
-### 1. Install Anaconda  
-Download here: [https://www.anaconda.com/download](https://www.anaconda.com/download)
-
-### 2. Create a Virtual Environment
-```bash
-conda create -n PCA_env python=3.10.11
-conda activate PCA_env
-
-# 🧠 KSL_PCA
-
-A Principal Component Analysis (PCA) tool tailored for **Raman** and other spectral data.  
 You can run it directly in a Python IDE (e.g., Spyder, Jupyter Notebook) or through its built-in GUI.
 
 > **Note:**  
