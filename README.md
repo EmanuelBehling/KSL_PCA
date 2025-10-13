@@ -1,5 +1,5 @@
 # KSL_PCA
-A PCA that is tailored for Raman Data. The PCA code includes a number of functions that will be described later. The program can be run either directly in any python IDE such as spyder or jupyter notebook or via the GUI. In oreder for the program to run smoothly, please make sure that the headers in your excel file are non-numerical for categorical data and numerical (wavenumbers) for your Raman data.
+A PCA python code that is tailored for Raman or other spectral data. The program can be run either directly in any python IDE such as spyder or jupyter notebook or via the GUI. In order for the program to run smoothly, please make sure that the headers in your excel file are non-numerical for categorical data and numerical (wavenumbers) for your Raman data.
 
 #Python setup
 1. Download anaconda (https://www.anaconda.com/download)
