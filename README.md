@@ -67,13 +67,6 @@ Open your **Anaconda Prompt (KSL_PCA)** and type:
 python PCA_GUI.py
 ```
 
----
-
-## 🔁 Update the Program
-To get the latest version:
-```bash
-git pull origin main
-```
 
 ---
 
