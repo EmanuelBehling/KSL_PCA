@@ -62,6 +62,36 @@ def extract_data(path: str):
     
     return categoricals, data
 
+#%%Crop data
+def crop_data(data: pd.DataFrame, start: int=None, end: int=None):
+    '''
+    Crop data at given wavenumbers
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        DESCRIPTION.
+    start : int, optional
+        DESCRIPTION. The default is None.
+    end : int, optional
+        DESCRIPTION. The default is None.
+
+    Returns
+    -------
+    cropped_df : TYPE
+        DESCRIPTION.
+
+    '''
+    # Set default values after data is available
+    if start is None:
+        start = data.columns.min()
+    if end is None:
+        end = data.columns.max()
+    
+    cropped_df = data.loc[:, (data.columns >= start) & (data.columns <= end)]
+    return cropped_df
+
+
 #%%
 def perform_pca(data, categoricals=None, color_by=None, n_components=10, 
                 scale_data=False, interactive=False, figsize=(12, 8),
@@ -954,6 +984,9 @@ def multi_loadings(pca_results, max_PC=5):
 '''
 # Extract data
 categoricals, data = extract_data('your_file.pkl')
+
+#crop data
+data= crop_data(data, start= 400, end= 1800)
 
 # Non-interactive PCA (default)
 pca_results = perform_pca(data, categoricals, color_by='Component')

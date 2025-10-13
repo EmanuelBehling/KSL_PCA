@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-Created on Mon Oct 13 11:03:07 2025
+Created on Mon Oct 13 13:39:37 2025
 
 @author: User
 """
@@ -19,7 +19,8 @@ from threading import Thread
 # Make sure your PCA code is in the same directory or installed as a module
 try:
     from PCA_claude import (extract_data, perform_pca, plot_loadings, 
-                              test_pc_significance, multi_stat, excel_to_pickle, multi_loadings)
+                              test_pc_significance, multi_stat, 
+                              excel_to_pickle, crop_data, multi_loadings)
 except ImportError:
     print("Warning: Could not import PCA functions. Make sure 'pca_analysis.py' exists in the same directory.")
 
@@ -49,6 +50,11 @@ class PCAAnalysisGUI:
         self.tab_load = ttk.Frame(notebook)
         notebook.add(self.tab_load, text='Step 1: Load Data')
         self.setup_load_tab()
+        
+        # Tab 1.5: Crop Data
+        self.tab_crop = ttk.Frame(notebook)
+        notebook.add(self.tab_crop, text='Step 1.5: Crop Data')
+        self.setup_crop_tab()
         
         # Tab 2: PCA Settings
         self.tab_pca = ttk.Frame(notebook)
@@ -91,6 +97,45 @@ class PCAAnalysisGUI:
         # Status
         self.load_status = ttk.Label(frame, text="No data loaded", foreground="red")
         self.load_status.grid(row=4, column=0, columnspan=3, pady=10)
+        
+    def setup_crop_tab(self):
+        """Setup data cropping tab"""
+        frame = ttk.LabelFrame(self.tab_crop, text="Crop Data by Wavenumber Range", padding=15)
+        frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # Info label
+        info_label = ttk.Label(frame, text="Optional: Crop data to a specific wavenumber range", 
+                               foreground="gray")
+        info_label.grid(row=0, column=0, columnspan=3, pady=5, sticky='w')
+        
+        # Start wavenumber
+        ttk.Label(frame, text="Start Wavenumber:").grid(row=1, column=0, sticky='w', pady=5)
+        self.crop_start = ttk.Entry(frame, width=15)
+        self.crop_start.grid(row=1, column=1, sticky='w', padx=5)
+        self.start_auto_label = ttk.Label(frame, text="(Auto: min)", foreground="gray")
+        self.start_auto_label.grid(row=1, column=2, sticky='w', padx=5)
+        
+        # End wavenumber
+        ttk.Label(frame, text="End Wavenumber:").grid(row=2, column=0, sticky='w', pady=5)
+        self.crop_end = ttk.Entry(frame, width=15)
+        self.crop_end.grid(row=2, column=1, sticky='w', padx=5)
+        self.end_auto_label = ttk.Label(frame, text="(Auto: max)", foreground="gray")
+        self.end_auto_label.grid(row=2, column=2, sticky='w', padx=5)
+        
+        # Separator
+        ttk.Separator(frame, orient='horizontal').grid(row=3, column=0, columnspan=3, sticky='ew', pady=10)
+        
+        # Data info
+        self.crop_info = ttk.Label(frame, text="No data loaded", foreground="gray")
+        self.crop_info.grid(row=4, column=0, columnspan=3, pady=5, sticky='w')
+        
+        # Crop button
+        ttk.Button(frame, text="Crop Data", command=self.crop_data_action, 
+                   style='Accent.TButton').grid(row=5, column=0, columnspan=3, pady=15)
+        
+        # Status
+        self.crop_status = ttk.Label(frame, text="Ready", foreground="blue")
+        self.crop_status.grid(row=6, column=0, columnspan=3, pady=10)
         
     def setup_pca_tab(self):
         """Setup PCA analysis tab"""
@@ -264,6 +309,16 @@ class PCAAnalysisGUI:
             self.color_by['values'] = cat_cols
             self.group_by['values'] = cat_cols
             
+            # Update crop info
+            data_min = self.data.columns.min()
+            data_max = self.data.columns.max()
+            self.crop_info.config(
+                text=f"Data range: {data_min:.1f} to {data_max:.1f} | Samples: {self.data.shape[0]}, Features: {self.data.shape[1]}",
+                foreground="black"
+            )
+            self.start_auto_label.config(text=f"(Auto: {data_min:.1f})")
+            self.end_auto_label.config(text=f"(Auto: {data_max:.1f})")
+            
             self.load_status.config(
                 text=f"✓ Loaded: {self.data.shape[0]} samples, {self.data.shape[1]} features",
                 foreground="green"
@@ -359,6 +414,42 @@ class PCAAnalysisGUI:
             self.stats_status.config(text="✓ Multiple tests completed", foreground="green")
         except Exception as e:
             messagebox.showerror("Error", f"Multiple tests failed:\n{str(e)}")
+
+    def crop_data_action(self):
+        """Crop the data based on start and end wavenumbers"""
+        if self.data is None:
+            messagebox.showerror("Error", "Please load data first")
+            return
+        
+        try:
+            # Get start and end values, None if empty
+            start = None
+            end = None
+            
+            if self.crop_start.get().strip():
+                start = float(self.crop_start.get().strip())
+            
+            if self.crop_end.get().strip():
+                end = float(self.crop_end.get().strip())
+            
+            # Crop the data
+            self.data = crop_data(self.data, start=start, end=end)
+            
+            # Update info
+            data_min = self.data.columns.min()
+            data_max = self.data.columns.max()
+            self.crop_info.config(
+                text=f"✓ Cropped range: {data_min:.1f} to {data_max:.1f} | Samples: {self.data.shape[0]}, Features: {self.data.shape[1]}",
+                foreground="green"
+            )
+            self.crop_status.config(text="✓ Data cropped successfully", foreground="green")
+            
+        except ValueError as e:
+            messagebox.showerror("Error", "Start and End values must be numbers")
+            self.crop_status.config(text="Error: Invalid input", foreground="red")
+        except Exception as e:
+            messagebox.showerror("Error", f"Cropping failed:\n{str(e)}")
+            self.crop_status.config(text="Error during cropping", foreground="red")
 
 if __name__ == "__main__":
     root = tk.Tk()
