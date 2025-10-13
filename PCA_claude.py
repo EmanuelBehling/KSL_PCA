@@ -40,6 +40,22 @@ def excel_to_pickle(path, output_path):
     
 #%%   
 def extract_data(path: str):
+    '''
+    Reads .pkl file and splits it into data anc categorical data for further analysis.
+
+    Parameters
+    ----------
+    path : str
+        Path to pickle file.
+
+    Returns
+    -------
+    categoricals : pd.DataFRame
+        DataFrame containing your categorical data (non-numerical headers)
+    data : pd.DataFrame
+        Data frame containing your measrued spectra (numerical headers)
+
+    '''
     df = pd.read_pickle(path)
     
     # Convert column names to numeric where possible
