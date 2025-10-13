@@ -24,6 +24,9 @@ A PCA python code that is tailored for Raman or other spectral data. The program
 #Start the program
 1. Either open PCA_claude.py or PCA_GUI.py in your IDE and run it. PCA_claude is the coded version, so only recommended if you understand python basics.
 2. Alternatively (recommended for python newcomers): open the desktop shortcut and just type "python PCA_GUI.py"
+
+#Update the program
+1. Run "git pull origin main" in your anaconda prompt
 -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 #What the program does
 
