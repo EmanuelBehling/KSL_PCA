@@ -25,6 +25,24 @@ A PCA that is tailored for Raman Data. The PCA code includes a number of functio
 1. Either open PCA_claude.py or PCA_GUI.py in your IDE and run it. PCA_claude is the coded version, so only recommended if you understand python basics.
 2. Alternatively (recommended for python newcomers): open the desktop shortcut and just type "python PCA_GUI.py"
 
+#What the program does
+#excel_to_pickle()
+1. The program converts an excel file into a much faster .pkl file. This can take minutes if your excel file is big, but you only have to do it once. At the GUI the pickle file hast the same name as your excel file, while you can specify the name in the code.
+
+#extract_data()
+1. This function splits your data into numerical data (Raman measurements) and categorical data (e.g. Day, Condition...) by identifiying the data type of the headers. It should be non-numerical for categorical data and numerical (so the wavenumbers) for the Raman data.
+
+#crop_data() (optional)
+1. Crops the data at the given wavenumbers. If not stated, the whole spectra are taken for further analysis.
+
+#perform_pca()
+Performs a PCA with the given data and also colors the data point by a given categorical variable. You can choose the following options:
+1. The number of components to calculate (standard is 10)
+2. Whether you want to standardize the data (set scale_data= True)
+3. For code users: wheter you want to create and save an interactive plot. The standard plots in spyder are not interactive so you can save it via the html_path input and open it in your webbrowser. GUI users that open the GUI with the prompt window will get an interactive pop-up image that they can directly safe. If you open the GUI with spyder you only can save the non-interative plot from spydre directly, so I recommend the Prompt option described above.
+4. Wheter you want to detect outliers. If True, you can choose the alpha value (outlier_alpha) and three options: 'show' only shows the outliers in the graph, 'hide' shows the graph with outliers removed and 'remove' deletes the outliers from further analysis. In the code you can also specify until which PC outliers shall be removed.
+5. You can color the scoreplot by a categorical variable of your choice via color_by.
+6. You can also choose the PCs of your scoreplot via pc_x and pc_y
 
 
 
