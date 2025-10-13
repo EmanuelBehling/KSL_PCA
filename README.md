@@ -1,5 +1,5 @@
 # KSL_PCA
-A PCA that is tailored for Raman Data. The PCA code includes a number of functions that will be described later. First, a virtual environment has to be set up.
+A PCA that is tailored for Raman Data. The PCA code includes a number of functions that will be described later. The program can be run either directly in any python IDE such as spyder or jupyter notebook or via the GUI. In oreder for the program to run smoothly, please make sure that the headers in your excel file are non-numerical for categorical data and numerical (wavenumbers) for your Raman data.
 
 #Python setup
 1. Download anaconda (https://www.anaconda.com/download)
@@ -9,10 +9,23 @@ A PCA that is tailored for Raman Data. The PCA code includes a number of functio
 5. Install pip ("conda install pip")
 6. Download and install the requirements.txt from the main page above (pip install -r /path/to/requirements.txt)
 
-#Pull the program from github and update
+#Pull the program from github
 1. Open Anaconda prompt in your virtual environment
-2. Type "git clone https://github.com/EmanuelBehling/KSL_PCA.git"
-3. Type cd KSL_PCA (go into the project folder)
-4. To update code type "git pull" after cd KSL_PCA whenever you open Anaconda Prompt)
+2. Type cd path/to/desired/directory
+3. Type "git clone https://github.com/EmanuelBehling/KSL_PCA.git"
+4. A folder called KSL_PCA will be created at the given directory
+
+#Recommended: create desktop shortcut for anaconda prompt
+1. Right click on your desktop "New --> Shortcut"
+2. Enter in the location field:
+   C:\Windows\System32\cmd.exe /k "C:\Users\path_to_anaconda_3(<USER>)\anaconda3\Scripts\activate.bat C:\Users\path_to_anaconda\anaconda3 & conda activate my_env & cd /d C:\Projects\KSL_PCA"
+3. Name your shortcut Anaconda Prompt (KSL_PCA)
+
+#Start the program
+1. Either open PCA_claude.py or PCA_GUI.py in your IDE and run it. PCA_claude is the coded version, so only recommended if you understand python basics.
+2. Alternatively (recommended for python newcomers): open the desktop shortcut and just type "python PCA_GUI.py"
+
+
+
 
 
