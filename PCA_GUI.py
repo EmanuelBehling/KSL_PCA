@@ -18,7 +18,7 @@ from threading import Thread
 # Import your PCA functions
 # Make sure your PCA code is in the same directory or installed as a module
 try:
-    from pca_analysis import (extract_data, perform_pca, plot_loadings, 
+    from PCA_claude import (extract_data, perform_pca, plot_loadings, 
                               test_pc_significance, multi_stat, excel_to_pickle, multi_loadings)
 except ImportError:
     print("Warning: Could not import PCA functions. Make sure 'pca_analysis.py' exists in the same directory.")
