@@ -211,13 +211,3 @@ multi_stat(df, group='Condition', max_pc=5, alpha=0.05)
 git pull origin main
 ```
 
----
-
-## 📜 License
-Distributed under the [MIT License](LICENSE).
-
----
-
-## 📬 Contact
-For issues or contributions, open an issue here:  
-[https://github.com/EmanuelBehling/KSL_PCA/issues](https://github.com/EmanuelBehling/KSL_PCA/issues)
