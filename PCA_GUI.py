@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Wed Oct 15 09:10:37 2025
+
+@author: User
+"""
+
+# -*- coding: utf-8 -*-
+"""
 Created on Mon Oct 13 13:39:37 2025
 
 @author: User
@@ -20,9 +27,11 @@ from threading import Thread
 try:
     from PCA_claude import (extract_data, perform_pca, plot_loadings, 
                               test_pc_significance, multi_stat, 
-                              excel_to_pickle, crop_data, multi_loadings)
+                              excel_to_pickle, crop_data, multi_loadings,
+                              test_pc_significance_grouped_means, 
+                              multi_stat_grouped_means)
 except ImportError:
-    print("Warning: Could not import PCA functions. Make sure 'pca_analysis.py' exists in the same directory.")
+    print("Warning: Could not import PCA functions. Make sure 'PCA_claude.py' exists in the same directory.")
 
 class PCAAnalysisGUI:
     def __init__(self, root):
@@ -70,6 +79,11 @@ class PCAAnalysisGUI:
         self.tab_stats = ttk.Frame(notebook)
         notebook.add(self.tab_stats, text='Step 4: Statistics')
         self.setup_stats_tab()
+        
+        # Tab 5: Grouped Means Statistics
+        self.tab_grouped_stats = ttk.Frame(notebook)
+        notebook.add(self.tab_grouped_stats, text='Step 5: Grouped Means')
+        self.setup_grouped_stats_tab()
         
     def setup_load_tab(self):
         """Setup data loading tab"""
@@ -267,6 +281,61 @@ class PCAAnalysisGUI:
         self.stats_status = ttk.Label(frame, text="Ready to analyze", foreground="blue")
         self.stats_status.grid(row=7, column=0, columnspan=2, pady=10)
         
+    def setup_grouped_stats_tab(self):
+        """Setup grouped means statistics tab"""
+        frame = ttk.LabelFrame(self.tab_grouped_stats, text="Grouped Means Statistical Tests", padding=15)
+        frame.pack(fill='both', expand=True, padx=10, pady=10)
+        
+        # Info label
+        info_label = ttk.Label(frame, 
+                               text="Test PC differences across groups using means calculated per sub-group\n" +
+                                    "(e.g., compare Days by averaging over each Chip within each Day)",
+                               foreground="gray", wraplength=400, justify='left')
+        info_label.grid(row=0, column=0, columnspan=2, pady=10, sticky='w')
+        
+        # Group by (what we're testing)
+        ttk.Label(frame, text="Compare across (Group by):").grid(row=1, column=0, sticky='w', pady=5)
+        self.grouped_group_by = ttk.Combobox(frame, width=20, state='readonly')
+        self.grouped_group_by.grid(row=1, column=1, sticky='w', padx=5)
+        
+        # Mean by (what we're averaging within)
+        ttk.Label(frame, text="Average within (Mean by):").grid(row=2, column=0, sticky='w', pady=5)
+        self.grouped_mean_by = ttk.Combobox(frame, width=20, state='readonly')
+        self.grouped_mean_by.grid(row=2, column=1, sticky='w', padx=5)
+        
+        # Principal Component
+        ttk.Label(frame, text="Principal Component:").grid(row=3, column=0, sticky='w', pady=5)
+        self.grouped_stat_pc = ttk.Spinbox(frame, from_=1, to=50, width=10)
+        self.grouped_stat_pc.set(1)
+        self.grouped_stat_pc.grid(row=3, column=1, sticky='w', padx=5)
+        
+        # Significance Level
+        ttk.Label(frame, text="Significance Level (α):").grid(row=4, column=0, sticky='w', pady=5)
+        self.grouped_stat_alpha = ttk.Combobox(frame, values=['0.01', '0.05', '0.1'], width=10, state='readonly')
+        self.grouped_stat_alpha.set('0.05')
+        self.grouped_stat_alpha.grid(row=4, column=1, sticky='w', padx=5)
+        
+        # Test single PC button
+        ttk.Button(frame, text="Test Single PC (Grouped Means)", 
+                   command=self.test_single_pc_grouped).grid(row=5, column=0, columnspan=2, pady=10)
+        
+        # Separator
+        ttk.Separator(frame, orient='horizontal').grid(row=6, column=0, columnspan=2, sticky='ew', pady=10)
+        
+        # Max PC for multiple tests
+        ttk.Label(frame, text="Max PC for Multiple Tests:").grid(row=7, column=0, sticky='w', pady=5)
+        self.grouped_max_stat_pc = ttk.Spinbox(frame, from_=2, to=20, width=10)
+        self.grouped_max_stat_pc.set(10)
+        self.grouped_max_stat_pc.grid(row=7, column=1, sticky='w', padx=5)
+        
+        # Test multiple PCs button
+        ttk.Button(frame, text="Test Multiple PCs (Grouped Means)", 
+                   command=self.test_multi_pc_grouped).grid(row=8, column=0, columnspan=2, pady=10)
+        
+        # Status
+        self.grouped_stats_status = ttk.Label(frame, text="Ready to analyze", foreground="blue")
+        self.grouped_stats_status.grid(row=9, column=0, columnspan=2, pady=10)
+        
     def browse_file(self):
         filename = filedialog.askopenfilename(
             title="Select Excel file",
@@ -304,10 +373,12 @@ class PCAAnalysisGUI:
         try:
             self.categoricals, self.data = extract_data(self.pickle_path.get())
             
-            # Update color_by and group_by dropdowns
+            # Update all dropdowns
             cat_cols = list(self.categoricals.columns)
             self.color_by['values'] = cat_cols
             self.group_by['values'] = cat_cols
+            self.grouped_group_by['values'] = cat_cols
+            self.grouped_mean_by['values'] = cat_cols
             
             # Update crop info
             data_min = self.data.columns.min()
@@ -414,6 +485,59 @@ class PCAAnalysisGUI:
             self.stats_status.config(text="✓ Multiple tests completed", foreground="green")
         except Exception as e:
             messagebox.showerror("Error", f"Multiple tests failed:\n{str(e)}")
+
+    def test_single_pc_grouped(self):
+        """Test single PC using grouped means"""
+        if self.pca_results is None:
+            messagebox.showerror("Error", "Please run PCA analysis first")
+            return
+        
+        if self.grouped_group_by.get() == '' or self.grouped_mean_by.get() == '':
+            messagebox.showerror("Error", "Please select both 'Group by' and 'Mean by' variables")
+            return
+        
+        try:
+            self.grouped_stats_status.config(text="Running test...", foreground="orange")
+            self.root.update()
+            
+            test_pc_significance_grouped_means(
+                self.pca_results,
+                self.categoricals,
+                group_by=self.grouped_group_by.get(),
+                mean_by=self.grouped_mean_by.get(),
+                pc_number=int(self.grouped_stat_pc.get()),
+                alpha=float(self.grouped_stat_alpha.get())
+            )
+            self.grouped_stats_status.config(text="✓ Grouped means test completed", foreground="green")
+        except Exception as e:
+            messagebox.showerror("Error", f"Grouped means test failed:\n{str(e)}\n\n{traceback.format_exc()}")
+            self.grouped_stats_status.config(text="Error during test", foreground="red")
+            
+    def test_multi_pc_grouped(self):
+        """Test multiple PCs using grouped means"""
+        if self.pca_results is None:
+            messagebox.showerror("Error", "Please run PCA analysis first")
+            return
+        
+        if self.grouped_group_by.get() == '' or self.grouped_mean_by.get() == '':
+            messagebox.showerror("Error", "Please select both 'Group by' and 'Mean by' variables")
+            return
+        
+        try:
+            self.grouped_stats_status.config(text="Running multiple tests...", foreground="orange")
+            self.root.update()
+            
+            multi_stat_grouped_means(
+                self.pca_results,
+                self.categoricals,
+                group_by=self.grouped_group_by.get(),
+                mean_by=self.grouped_mean_by.get(),
+                max_PC=int(self.grouped_max_stat_pc.get())
+            )
+            self.grouped_stats_status.config(text="✓ Multiple grouped means tests completed", foreground="green")
+        except Exception as e:
+            messagebox.showerror("Error", f"Multiple grouped means tests failed:\n{str(e)}\n\n{traceback.format_exc()}")
+            self.grouped_stats_status.config(text="Error during tests", foreground="red")
 
     def crop_data_action(self):
         """Crop the data based on start and end wavenumbers"""
