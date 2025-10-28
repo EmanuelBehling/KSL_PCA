@@ -81,6 +81,10 @@ def extract_data(path: str= None, df: pd.DataFrame= None):
     data = df.loc[:, idx]           # Numeric columns
     categoricals = df.loc[:, ~idx]  # Non-numeric columns
     
+    #Reset index for subsets (fixes bug after outlier removal)
+    data.reset_index(drop= True, inplace= True)
+    categoricals.reset_index(drop= True, inplace= True)
+    
     return categoricals, data
 
 #%%Crop data
@@ -1219,7 +1223,7 @@ def test_pc_significance_grouped_means(pca_results, categoricals, group_by, mean
         'mean_by': mean_by
     }
 
-
+#%%
 def multi_stat_grouped_means(pca_results: dict, categoricals: pd.DataFrame, 
                              group_by: str, mean_by: str, max_PC: int=10):
     '''
