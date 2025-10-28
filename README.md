@@ -21,6 +21,7 @@ conda activate PCA_env
 ```
 
 ### 3. Install Requirements
+Download the requirements.txt from github!
 ```bash
 conda install pip
 pip install -r requirements.txt
