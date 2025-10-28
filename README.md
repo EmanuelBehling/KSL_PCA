@@ -155,6 +155,15 @@ test_pc_significance(df, pc=1, group='Condition', alpha=0.05)
 multi_stat(df, group='Condition', max_pc=5, alpha=0.05)
 ```
 
+###test_pc_significance_grouped_means()
+Tests the PCs for significance, after they were grouped by a categorical variable. If you want to do it for multiple PCs at once, use multi_stat_grouped_means()
+```python
+test_pc_significance_grouped_means(pca_results, categoricals, group_by, mean_by, 
+                                       pc_number=1, alpha=0.05)
+multi_stat_grouped_means(pca_results, categoricals, 
+                             group_by="Day", mean_by= "Chip", max_PC=10)
+```
+
 ---
 
 ## 🧠 Function Summary
