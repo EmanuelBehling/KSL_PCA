@@ -4,7 +4,7 @@ Created on Fri Oct 10 11:44:56 2025
 
 @author: User
 """
-
+import os
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -290,7 +290,7 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
                 categoricals_clean = categoricals[~is_outlier]
             
             # Re-run PCA without outliers (and without outlier detection to avoid recursion)
-            return perform_pca(
+            cleaned_results= perform_pca(
                 data=data_clean,
                 categoricals=categoricals_clean,
                 color_by=color_by,
@@ -302,7 +302,13 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
                 pc_y=pc_y,
                 html_path=html_path,
                 detect_outliers=False  # Don't detect outliers again
-            )
+                )
+            
+            cleaned_results["outlier_cats"] = categoricals_clean
+            cleaned_results["removed_outliers"] = data.index[is_outlier].tolist()
+            cleaned_results["n_outliers_removed"] = n_outliers
+            
+            return cleaned_results
     
     # Convert PC indices to 0-based for array access
     pc_x_idx = pc_x - 1
@@ -629,53 +635,13 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
         'color_variable': color_var if color_var is not None else None,
         'plotted_components': (pc_x, pc_y),
         'outlier_info': outlier_info
-    }
+        }
+    
+    if 'categoricals_clean' in locals() and categoricals_clean is not None:
+        results["outlier_cats"] = categoricals_clean    
     
     return results
 
-
-## Example usage
-# if __name__ == "__main__":
-#     # Create sample data
-#     np.random.seed(42)
-#     n_samples = 100
-#     n_features = 20
-    
-#     # Generate data with some structure
-#     data = pd.DataFrame(
-#         np.random.randn(n_samples, n_features),
-#         columns=[f'Feature_{i+1}' for i in range(n_features)]
-#     )
-    
-#     # Add some outliers
-#     data.iloc[0] *= 3
-#     data.iloc[50] *= 2.5
-    
-#     # Create categorical variables for coloring
-#     categoricals = pd.DataFrame({
-#         'Group': ['A'] * 30 + ['B'] * 40 + ['C'] * 30,
-#         'Type': ['X', 'Y'] * 50
-#     })
-    
-#     # Run PCA with outlier detection
-#     results = perform_pca(
-#         data=data,
-#         categoricals=categoricals,
-#         color_by='Group',
-#         n_components=10,
-#         scale_data=True,
-#         detect_outliers=True,
-#         outlier_alpha=0.05,
-#         outlier_action='remove',  # Try 'hide' or 'remove' as well
-#         interactive=False
-#     )
-    
-#     # Access results
-#     print("\nFirst 5 PC scores:")
-#     print(results['scores'].head())
-    
-#     print("\nTop 5 loadings for PC1:")
-#     print(results['loadings']['PC1'].abs().sort_values(ascending=False).head())
 
 #%%    
 def plot_loadings(pca_results, n_components=[1, 2], figsize=(12, 6)): 
@@ -1000,7 +966,7 @@ def multi_stat(pca_results: dict, categoricals: pd.DataFrame, group_by: str, max
     return
 
 #%%
-def test_pc_significance_grouped_means(pca_results, categoricals, group_by, mean_by, 
+def test_pc_significance_grouped_means(pca_results: dict, categoricals: pd.DataFrame, group_by:str, mean_by:str, 
                                        pc_number=1, alpha=0.05):
     """
     Test whether PC scores differ across levels of group_by, using means calculated 
@@ -1281,6 +1247,82 @@ def multi_stat_grouped_means(pca_results: dict, categoricals: pd.DataFrame,
 def multi_loadings(pca_results, max_PC=5):
     for n,i in combinations(range(1,max_PC), r=2):
         plot_loadings(pca_results, n_components=[n, i], figsize=(12, 6))
+        
+#%%
+  
+def export_data(pca_results: dict, categoricals: pd.DataFrame, 
+                output_directory: str, scores: bool = True, 
+                loadings: bool = True, ex_variance: bool = True, 
+                filetype: str = "xlsx"):
+    """
+    Export PCA results and associated data to Excel or Pickle files.
+
+    Parameters
+    ----------
+    pca_results : dict
+        Dictionary returned by perform_pca()
+    categoricals : pd.DataFrame
+        Original categorical data, will return only cleaned categoricals if 
+        outliers were removed
+    output_directory : str
+        Folder where exported files will be saved
+    scores : bool, default=True
+        Export PCA score matrix
+    loadings : bool, default=True
+        Export PCA loadings
+    ex_variance : bool, default=True
+        Export explained variance ratios
+    filetype : {'xlsx', 'pkl'}, default='xlsx'
+        Output file type (Excel or Pickle)
+    """
+    
+    # --- Safety and setup ---
+    os.makedirs(output_directory, exist_ok=True)
+    
+    # Determine categorical dataframe (outlier-cleaned if available)
+    cat_df = pca_results.get("outlier_cats", categoricals)
+    if cat_df is None or not isinstance(cat_df, pd.DataFrame) or cat_df.empty:
+        print("Warning: No valid categorical data found. Skipping categorical export.")
+        cat_df = None
+
+    # --- Prepare DataFrames to export ---
+    dfs_to_export = {}
+    
+    if scores and "scores" in pca_results:
+        dfs_to_export["scores"] = pca_results["scores"]
+    
+    if loadings and "loadings" in pca_results:
+        dfs_to_export["loadings"] = pca_results["loadings"]
+    
+    if ex_variance and "explained_variance_ratio" in pca_results:
+        dfs_to_export["explained_variance"] = pd.DataFrame(
+            pca_results["explained_variance_ratio"],
+            columns=["explained_variance_ratio"]
+        )
+    
+    if cat_df is not None:
+        dfs_to_export["categoricals"] = cat_df
+
+    if not dfs_to_export:
+        print("No data selected for export. Nothing saved.")
+        return
+    
+    # --- Export logic ---
+    if filetype.lower() == "xlsx":
+        output_path = os.path.join(output_directory, "pca_results.xlsx")
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            for name, df in dfs_to_export.items():
+                df.to_excel(writer, sheet_name=name[:31])  # Excel sheet name limit = 31 chars
+        print(f"✅ PCA results successfully exported to '{output_path}'")
+
+    elif filetype.lower() in ["pkl", "pickle"]:
+        for name, df in dfs_to_export.items():
+            output_path = os.path.join(output_directory, f"{name}.pkl")
+            df.to_pickle(output_path)
+        print(f"✅ PCA results successfully exported as pickle files in '{output_directory}'")
+
+    else:
+        raise ValueError("filetype must be either 'xlsx' or 'pkl'")
     
 #%%    
 # Example usage:
