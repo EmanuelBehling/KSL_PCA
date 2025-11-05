@@ -15,6 +15,7 @@ You can run it directly in a Python IDE (e.g., Spyder, Jupyter Notebook) or thro
 Download here: [https://www.anaconda.com/download](https://www.anaconda.com/download)
 
 ### 2. Create a Virtual Environment
+Open a python terminal and create a virtual environment:
 ```bash
 conda create -n PCA_env python=3.10.11
 conda activate PCA_env
@@ -58,8 +59,8 @@ Open the file in Spyder, Jupyter, or another IDE:
 # Run GUI (recommended)
 python PCA_GUI.py
 
-# OR run the code-based version
-python PCA_claude.py
+# OR run the code-based version in jupyter or spyder
+spyder PCA_claude.py
 ```
 
 ### Option 2 – Run via the Shortcut  
