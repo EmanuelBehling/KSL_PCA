@@ -1,5 +1,12 @@
 # -*- coding: utf-8 -*-
 """
+Created on Tue Dec  2 16:22:05 2025
+
+@author: User
+"""
+
+# -*- coding: utf-8 -*-
+"""
 PCA Analysis GUI with Export Functionality
 Created on Wed Oct 15 09:10:37 2025
 @author: User
@@ -20,7 +27,8 @@ try:
                               test_pc_significance, multi_stat, 
                               excel_to_pickle, crop_data, multi_loadings,
                               test_pc_significance_grouped_means, 
-                              multi_stat_grouped_means, export_data)
+                              multi_stat_grouped_means, export_data,
+                              export_stats)
 except ImportError:
     print("Warning: Could not import PCA functions.")
 
@@ -28,7 +36,7 @@ class PCAAnalysisGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("PCA Analysis Tool")
-        self.root.geometry("900x700")
+        self.root.geometry("900x750")
         self.root.resizable(True, True)
         
         self.file_path = tk.StringVar()
@@ -36,6 +44,8 @@ class PCAAnalysisGUI:
         self.data = None
         self.categoricals = None
         self.pca_results = None
+        self.stats_results = None  # Store stats results for export
+        self.grouped_stats_results = None  # Store grouped stats results for export
         
         self.setup_ui()
         
@@ -138,29 +148,33 @@ class PCAAnalysisGUI:
         self.outlier_alpha.set('0.05')
         self.outlier_alpha.grid(row=3, column=1, sticky='w', padx=5)
         
-        ttk.Label(frame, text="Outlier Action:").grid(row=4, column=0, sticky='w', pady=5)
+        ttk.Label(frame, text="Outlier Components (None=all):").grid(row=4, column=0, sticky='w', pady=5)
+        self.outlier_components = ttk.Entry(frame, width=10)
+        self.outlier_components.grid(row=4, column=1, sticky='w', padx=5)
+        
+        ttk.Label(frame, text="Outlier Action:").grid(row=5, column=0, sticky='w', pady=5)
         self.outlier_action = ttk.Combobox(frame, values=['show', 'hide', 'remove'], width=10, state='readonly')
         self.outlier_action.set('show')
-        self.outlier_action.grid(row=4, column=1, sticky='w', padx=5)
+        self.outlier_action.grid(row=5, column=1, sticky='w', padx=5)
         
-        ttk.Label(frame, text="Color by (optional):").grid(row=5, column=0, sticky='w', pady=5)
+        ttk.Label(frame, text="Color by (optional):").grid(row=6, column=0, sticky='w', pady=5)
         self.color_by = ttk.Combobox(frame, width=20, state='readonly')
-        self.color_by.grid(row=5, column=1, sticky='w', padx=5)
+        self.color_by.grid(row=6, column=1, sticky='w', padx=5)
         
-        ttk.Label(frame, text="X-axis PC:").grid(row=6, column=0, sticky='w', pady=5)
+        ttk.Label(frame, text="X-axis PC:").grid(row=7, column=0, sticky='w', pady=5)
         self.pc_x = ttk.Spinbox(frame, from_=1, to=50, width=10)
         self.pc_x.set(1)
-        self.pc_x.grid(row=6, column=1, sticky='w', padx=5)
+        self.pc_x.grid(row=7, column=1, sticky='w', padx=5)
         
-        ttk.Label(frame, text="Y-axis PC:").grid(row=7, column=0, sticky='w', pady=5)
+        ttk.Label(frame, text="Y-axis PC:").grid(row=8, column=0, sticky='w', pady=5)
         self.pc_y = ttk.Spinbox(frame, from_=1, to=50, width=10)
         self.pc_y.set(2)
-        self.pc_y.grid(row=7, column=1, sticky='w', padx=5)
+        self.pc_y.grid(row=8, column=1, sticky='w', padx=5)
         
-        ttk.Button(frame, text="Run PCA Analysis", command=self.run_pca).grid(row=8, column=0, columnspan=2, pady=15)
+        ttk.Button(frame, text="Run PCA Analysis", command=self.run_pca).grid(row=9, column=0, columnspan=2, pady=15)
         
         self.pca_status = ttk.Label(frame, text="Ready to analyze", foreground="blue")
-        self.pca_status.grid(row=9, column=0, columnspan=2, pady=10)
+        self.pca_status.grid(row=10, column=0, columnspan=2, pady=10)
         
     def setup_viz_tab(self):
         frame = ttk.LabelFrame(self.tab_viz, text="Visualization Options", padding=15)
@@ -219,8 +233,13 @@ class PCAAnalysisGUI:
         
         ttk.Button(frame, text="Test Multiple PCs", command=self.test_multi_pc).grid(row=6, column=0, columnspan=2, pady=10)
         
+        ttk.Separator(frame, orient='horizontal').grid(row=7, column=0, columnspan=2, sticky='ew', pady=10)
+        
+        ttk.Label(frame, text="Export Statistics:", font=('TkDefaultFont', 9, 'bold')).grid(row=8, column=0, columnspan=2, sticky='w', pady=5)
+        ttk.Button(frame, text="Export Stats Results", command=self.export_stats_results).grid(row=9, column=0, columnspan=2, pady=5)
+        
         self.stats_status = ttk.Label(frame, text="Ready to analyze", foreground="blue")
-        self.stats_status.grid(row=7, column=0, columnspan=2, pady=10)
+        self.stats_status.grid(row=10, column=0, columnspan=2, pady=10)
         
     def setup_grouped_stats_tab(self):
         frame = ttk.LabelFrame(self.tab_grouped_stats, text="Grouped Means Statistical Tests", padding=15)
@@ -257,8 +276,13 @@ class PCAAnalysisGUI:
         
         ttk.Button(frame, text="Test Multiple PCs (Grouped Means)", command=self.test_multi_pc_grouped).grid(row=8, column=0, columnspan=2, pady=10)
         
+        ttk.Separator(frame, orient='horizontal').grid(row=9, column=0, columnspan=2, sticky='ew', pady=10)
+        
+        ttk.Label(frame, text="Export Statistics:", font=('TkDefaultFont', 9, 'bold')).grid(row=10, column=0, columnspan=2, sticky='w', pady=5)
+        ttk.Button(frame, text="Export Grouped Stats Results", command=self.export_grouped_stats_results).grid(row=11, column=0, columnspan=2, pady=5)
+        
         self.grouped_stats_status = ttk.Label(frame, text="Ready to analyze", foreground="blue")
-        self.grouped_stats_status.grid(row=9, column=0, columnspan=2, pady=10)
+        self.grouped_stats_status.grid(row=12, column=0, columnspan=2, pady=10)
         
     def setup_export_tab(self):
         frame = ttk.LabelFrame(self.tab_export, text="Export PCA Results", padding=15)
@@ -296,7 +320,7 @@ class PCAAnalysisGUI:
         ttk.Radiobutton(filetype_frame, text="Excel (.xlsx)", variable=self.export_filetype, value='xlsx').pack(side='left', padx=5)
         ttk.Radiobutton(filetype_frame, text="Pickle (.pkl)", variable=self.export_filetype, value='pkl').pack(side='left', padx=5)
         
-        ttk.Button(frame, text="Export Results", command=self.export_results).grid(row=10, column=0, columnspan=3, pady=20)
+        ttk.Button(frame, text="Export PCA Results", command=self.export_results).grid(row=10, column=0, columnspan=3, pady=20)
         
         self.export_status = ttk.Label(frame, text="Ready to export", foreground="blue")
         self.export_status.grid(row=11, column=0, columnspan=3, pady=10)
@@ -380,8 +404,29 @@ class PCAAnalysisGUI:
         try:
             self.pca_status.config(text="Running PCA...", foreground="orange")
             self.root.update()
+            
             color_by = self.color_by.get() if self.color_by.get() else None
-            self.pca_results = perform_pca(data=self.data, categoricals=self.categoricals, color_by=color_by, n_components=int(self.n_components.get()), scale_data=self.scale_data.get(), interactive=False, pc_x=int(self.pc_x.get()), pc_y=int(self.pc_y.get()), detect_outliers=self.detect_outliers.get(), outlier_alpha=float(self.outlier_alpha.get()), outlier_action=self.outlier_action.get())
+            
+            # Handle outlier_components parameter
+            outlier_comp = None
+            if self.outlier_components.get().strip():
+                outlier_comp = int(self.outlier_components.get().strip())
+            
+            self.pca_results = perform_pca(
+                data=self.data, 
+                categoricals=self.categoricals, 
+                color_by=color_by, 
+                n_components=int(self.n_components.get()), 
+                scale_data=self.scale_data.get(), 
+                interactive=False, 
+                pc_x=int(self.pc_x.get()), 
+                pc_y=int(self.pc_y.get()), 
+                detect_outliers=self.detect_outliers.get(), 
+                outlier_alpha=float(self.outlier_alpha.get()),
+                outlier_components=outlier_comp,
+                outlier_action=self.outlier_action.get()
+            )
+            
             self.pca_status.config(text="✓ PCA completed successfully", foreground="green")
         except Exception as e:
             messagebox.showerror("Error", f"PCA failed:\n{str(e)}\n\n{traceback.format_exc()}")
@@ -412,7 +457,14 @@ class PCAAnalysisGUI:
             messagebox.showerror("Error", "Please run PCA and select a grouping variable")
             return
         try:
-            test_pc_significance(self.pca_results, self.categoricals, group_by=self.group_by.get(), pc_number=int(self.stat_pc.get()), alpha=float(self.stat_alpha.get()))
+            result = test_pc_significance(
+                self.pca_results, 
+                self.categoricals, 
+                group_by=self.group_by.get(), 
+                pc_number=int(self.stat_pc.get()), 
+                alpha=float(self.stat_alpha.get())
+            )
+            self.stats_results = result  # Store for export
             self.stats_status.config(text="✓ Statistical test completed", foreground="green")
         except Exception as e:
             messagebox.showerror("Error", f"Statistical test failed:\n{str(e)}")
@@ -422,7 +474,13 @@ class PCAAnalysisGUI:
             messagebox.showerror("Error", "Please run PCA and select a grouping variable")
             return
         try:
-            multi_stat(self.pca_results, self.categoricals, group_by=self.group_by.get(), max_PC=int(self.max_stat_pc.get()))
+            results = multi_stat(
+                self.pca_results, 
+                self.categoricals, 
+                group_by=self.group_by.get(), 
+                max_PC=int(self.max_stat_pc.get())
+            )
+            self.stats_results = results  # Store for export
             self.stats_status.config(text="✓ Multiple tests completed", foreground="green")
         except Exception as e:
             messagebox.showerror("Error", f"Multiple tests failed:\n{str(e)}")
@@ -437,7 +495,15 @@ class PCAAnalysisGUI:
         try:
             self.grouped_stats_status.config(text="Running test...", foreground="orange")
             self.root.update()
-            test_pc_significance_grouped_means(self.pca_results, self.categoricals, group_by=self.grouped_group_by.get(), mean_by=self.grouped_mean_by.get(), pc_number=int(self.grouped_stat_pc.get()), alpha=float(self.grouped_stat_alpha.get()))
+            result = test_pc_significance_grouped_means(
+                self.pca_results, 
+                self.categoricals, 
+                group_by=self.grouped_group_by.get(), 
+                mean_by=self.grouped_mean_by.get(), 
+                pc_number=int(self.grouped_stat_pc.get()), 
+                alpha=float(self.grouped_stat_alpha.get())
+            )
+            self.grouped_stats_results = result  # Store for export
             self.grouped_stats_status.config(text="✓ Grouped means test completed", foreground="green")
         except Exception as e:
             messagebox.showerror("Error", f"Grouped means test failed:\n{str(e)}\n\n{traceback.format_exc()}")
@@ -453,7 +519,14 @@ class PCAAnalysisGUI:
         try:
             self.grouped_stats_status.config(text="Running multiple tests...", foreground="orange")
             self.root.update()
-            multi_stat_grouped_means(self.pca_results, self.categoricals, group_by=self.grouped_group_by.get(), mean_by=self.grouped_mean_by.get(), max_PC=int(self.grouped_max_stat_pc.get()))
+            results = multi_stat_grouped_means(
+                self.pca_results, 
+                self.categoricals, 
+                group_by=self.grouped_group_by.get(), 
+                mean_by=self.grouped_mean_by.get(), 
+                max_PC=int(self.grouped_max_stat_pc.get())
+            )
+            self.grouped_stats_results = results  # Store for export
             self.grouped_stats_status.config(text="✓ Multiple grouped means tests completed", foreground="green")
         except Exception as e:
             messagebox.showerror("Error", f"Multiple grouped means tests failed:\n{str(e)}\n\n{traceback.format_exc()}")
@@ -473,7 +546,6 @@ class PCAAnalysisGUI:
             self.root.update()
             
             # Determine which categoricals to use
-            # If outliers were removed, use the cleaned categoricals from pca_results
             if 'outlier_cats' in self.pca_results and self.pca_results['outlier_cats'] is not None:
                 cats_to_export = self.pca_results['outlier_cats']
             else:
@@ -495,6 +567,62 @@ class PCAAnalysisGUI:
         except Exception as e:
             messagebox.showerror("Error", f"Export failed:\n{str(e)}\n\n{traceback.format_exc()}")
             self.export_status.config(text="Error during export", foreground="red")
+    
+    def export_stats_results(self):
+        if self.stats_results is None:
+            messagebox.showerror("Error", "No statistical test results to export. Please run tests first.")
+            return
+        
+        if not self.export_dir.get():
+            messagebox.showerror("Error", "Please select an output directory")
+            return
+        
+        try:
+            self.stats_status.config(text="Exporting stats...", foreground="orange")
+            self.root.update()
+            
+            export_stats(
+                stats_results=self.stats_results,
+                output_directory=self.export_dir.get(),
+                filename="statistical_results",
+                filetype=self.export_filetype.get(),
+                include_pairwise=True
+            )
+            
+            self.stats_status.config(text="✓ Stats export completed", foreground="green")
+            messagebox.showinfo("Success", f"Statistical results exported to:\n{self.export_dir.get()}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Stats export failed:\n{str(e)}\n\n{traceback.format_exc()}")
+            self.stats_status.config(text="Error during export", foreground="red")
+    
+    def export_grouped_stats_results(self):
+        if self.grouped_stats_results is None:
+            messagebox.showerror("Error", "No grouped means test results to export. Please run tests first.")
+            return
+        
+        if not self.export_dir.get():
+            messagebox.showerror("Error", "Please select an output directory")
+            return
+        
+        try:
+            self.grouped_stats_status.config(text="Exporting stats...", foreground="orange")
+            self.root.update()
+            
+            export_stats(
+                stats_results=self.grouped_stats_results,
+                output_directory=self.export_dir.get(),
+                filename="grouped_means_statistical_results",
+                filetype=self.export_filetype.get(),
+                include_pairwise=True
+            )
+            
+            self.grouped_stats_status.config(text="✓ Stats export completed", foreground="green")
+            messagebox.showinfo("Success", f"Grouped means statistical results exported to:\n{self.export_dir.get()}")
+            
+        except Exception as e:
+            messagebox.showerror("Error", f"Grouped stats export failed:\n{str(e)}\n\n{traceback.format_exc()}")
+            self.grouped_stats_status.config(text="Error during export", foreground="red")
 
 if __name__ == "__main__":
     root = tk.Tk()

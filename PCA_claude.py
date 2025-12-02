@@ -269,7 +269,7 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
             'alpha': outlier_alpha
         }
         
-        print(f"\nOutlier Detection (Hotelling's T²):")
+        print("\nOutlier Detection (Hotelling's T²):")
         print(f"- Components used: {n_outlier_components}")
         print(f"- Significance level (α): {outlier_alpha}")
         print(f"- Critical value: {t_squared_crit:.2f}")
@@ -727,7 +727,8 @@ def plot_loadings(pca_results, n_components=[1, 2], figsize=(12, 6)):
 def test_pc_significance(pca_results, categoricals, group_by, pc_number=1, 
                         alpha=0.05, test_type='auto'):
     """
-    Test whether PC scores are significantly different between groups.
+    Test whether PC scores are significantly different between groups in an 
+    one-way anova.
     
     Parameters:
     -----------
@@ -1248,8 +1249,7 @@ def multi_loadings(pca_results, max_PC=5):
     for n,i in combinations(range(1,max_PC), r=2):
         plot_loadings(pca_results, n_components=[n, i], figsize=(12, 6))
         
-#%%
-  
+#%%  
 def export_data(pca_results: dict, categoricals: pd.DataFrame, 
                 output_directory: str, scores: bool = True, 
                 loadings: bool = True, ex_variance: bool = True, 
@@ -1323,6 +1323,189 @@ def export_data(pca_results: dict, categoricals: pd.DataFrame,
 
     else:
         raise ValueError("filetype must be either 'xlsx' or 'pkl'")
+        
+#%%
+def export_stats(stats_results, output_directory: str, filename: str = "stats_results", 
+                filetype: str = "xlsx", include_pairwise: bool = True):
+    """
+    Export statistical test results to Excel or Pickle files.
+    
+    This function can handle results from:
+    - test_pc_significance() - single PC test
+    - multi_stat() - multiple PC tests
+    - test_pc_significance_grouped_means() - single PC with grouped means
+    - multi_stat_grouped_means() - multiple PC tests with grouped means
+    
+    Parameters
+    ----------
+    stats_results : dict or list
+        Statistical results from test functions
+        - dict: single PC test result
+        - list: results from multi_stat or multi_stat_grouped_means
+    output_directory : str
+        Folder where exported files will be saved
+    filename : str, default="stats_results"
+        Base name for output file(s)
+    filetype : {'xlsx', 'pkl'}, default='xlsx'
+        Output file type (Excel or Pickle)
+    include_pairwise : bool, default=True
+        Include pairwise comparison results if available
+    
+    Returns
+    -------
+    None
+    
+    Examples
+    --------
+    # Single PC test
+    result = test_pc_significance(pca_results, categoricals, 'Treatment', pc_number=1)
+    export_stats(result, './output', 'pc1_treatment')
+    
+    # Multiple PCs
+    results = multi_stat(pca_results, categoricals, 'Treatment', max_PC=5)
+    export_stats(results, './output', 'multi_pc_treatment')
+    
+    # Grouped means (single or multiple)
+    result = test_pc_significance_grouped_means(pca_results, categoricals, 
+                                                 'Day', 'Chip', pc_number=1)
+    export_stats(result, './output', 'pc1_day_by_chip')
+    """
+    
+    # --- Setup ---
+    os.makedirs(output_directory, exist_ok=True)
+    
+    # Determine if input is single result (dict) or multiple results (list)
+    is_multi = isinstance(stats_results, list)
+    results_list = stats_results if is_multi else [stats_results]
+    
+    # --- Prepare summary DataFrame ---
+    summary_data = []
+    
+    for i, result in enumerate(results_list, start=1):
+        pc_num = i if is_multi else result.get('pc_number', 1)
+        
+        row = {
+            'PC': f'PC{pc_num}',
+            'Test_Type': result.get('test_used', 'Unknown'),
+            'ANOVA_F': result.get('anova_f'),
+            'ANOVA_p': result.get('anova_p'),
+            'T-test_t': result.get('ttest_t'),
+            'T-test_p': result.get('ttest_p'),
+            'Significant': result.get('significant', False)
+        }
+        
+        # Add grouped means info if available
+        if 'group_by' in result and 'mean_by' in result:
+            row['Group_By'] = result['group_by']
+            row['Mean_By'] = result['mean_by']
+        
+        summary_data.append(row)
+    
+    summary_df = pd.DataFrame(summary_data)
+    
+    # --- Prepare group statistics DataFrame ---
+    group_stats_data = []
+    
+    for i, result in enumerate(results_list, start=1):
+        pc_num = i if is_multi else result.get('pc_number', 1)
+        
+        # Handle regular group means
+        if 'group_means' in result and isinstance(result['group_means'], pd.Series):
+            for group, mean_val in result['group_means'].items():
+                std_val = result.get('group_std', {}).get(group, np.nan)
+                group_stats_data.append({
+                    'PC': f'PC{pc_num}',
+                    'Group': group,
+                    'Mean': mean_val,
+                    'Std': std_val
+                })
+        
+        # Handle grouped means (from test_pc_significance_grouped_means)
+        elif 'group_means' in result and isinstance(result['group_means'], pd.DataFrame):
+            grouped_df = result['group_means']
+            for _, row in grouped_df.iterrows():
+                group_stats_data.append({
+                    'PC': f'PC{pc_num}',
+                    'Group': row.get('group_by', 'N/A'),
+                    'Mean_By': row.get('mean_by', 'N/A'),
+                    'Mean': row.get('mean_score', np.nan)
+                })
+    
+    group_stats_df = pd.DataFrame(group_stats_data) if group_stats_data else None
+    
+    # --- Prepare pairwise comparisons DataFrame ---
+    pairwise_df = None
+    
+    if include_pairwise:
+        pairwise_data = []
+        
+        for i, result in enumerate(results_list, start=1):
+            pc_num = i if is_multi else result.get('pc_number', 1)
+            
+            if 'pairwise_results' in result and result['pairwise_results']:
+                for pair in result['pairwise_results']:
+                    pairwise_data.append({
+                        'PC': f'PC{pc_num}',
+                        'Group1': pair['Group1'],
+                        'Group2': pair['Group2'],
+                        'p_value': pair['p_value'],
+                        'Significant': pair['significant']
+                    })
+        
+        if pairwise_data:
+            pairwise_df = pd.DataFrame(pairwise_data)
+    
+    # --- Export logic ---
+    dfs_to_export = {
+        'summary': summary_df
+    }
+    
+    if group_stats_df is not None and not group_stats_df.empty:
+        dfs_to_export['group_statistics'] = group_stats_df
+    
+    if pairwise_df is not None and not pairwise_df.empty:
+        dfs_to_export['pairwise_comparisons'] = pairwise_df
+    
+    if filetype.lower() == "xlsx":
+        output_path = os.path.join(output_directory, f"{filename}.xlsx")
+        with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
+            for sheet_name, df in dfs_to_export.items():
+                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+        
+        print(f"✅ Statistical results successfully exported to '{output_path}'")
+        print(f"   Sheets included: {list(dfs_to_export.keys())}")
+    
+    elif filetype.lower() in ["pkl", "pickle"]:
+        for name, df in dfs_to_export.items():
+            output_path = os.path.join(output_directory, f"{filename}_{name}.pkl")
+            df.to_pickle(output_path)
+        
+        print(f"✅ Statistical results successfully exported as pickle files in '{output_directory}'")
+        print(f"   Files created: {[f'{filename}_{name}.pkl' for name in dfs_to_export.keys()]}")
+    
+    else:
+        raise ValueError("filetype must be either 'xlsx' or 'pkl'")
+    
+    # Print summary to console
+    print("\n" + "="*70)
+    print("STATISTICAL RESULTS SUMMARY")
+    print("="*70)
+    print(summary_df.to_string(index=False))
+    
+    if group_stats_df is not None and not group_stats_df.empty:
+        print("\n" + "="*70)
+        print("GROUP STATISTICS")
+        print("="*70)
+        print(group_stats_df.to_string(index=False))
+    
+    if pairwise_df is not None and not pairwise_df.empty and len(pairwise_df) <= 20:
+        print("\n" + "="*70)
+        print("PAIRWISE COMPARISONS")
+        print("="*70)
+        print(pairwise_df.to_string(index=False))
+    elif pairwise_df is not None and not pairwise_df.empty:
+        print(f"\n({len(pairwise_df)} pairwise comparisons - see exported file for details)")
+
     
 #%%    
 # Example usage:
