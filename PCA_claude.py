@@ -13,6 +13,8 @@ from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from scipy import stats
 from scipy.stats import ttest_ind, f_oneway
+from statsmodels.formula.api import ols
+from statsmodels.stats.anova import anova_lm
 from itertools import combinations
 import warnings
 warnings.filterwarnings('ignore')
@@ -724,11 +726,11 @@ def plot_loadings(pca_results, n_components=[1, 2], figsize=(12, 6)):
     return loadings.iloc[:, valid_indices]
 
 #%%
-def test_pc_significance(pca_results, categoricals, group_by, pc_number=1, 
-                        alpha=0.05, test_type='auto'):
+def test_pca_statistics(pca_results, categoricals, group_by, mean_by=None, 
+                        pc_number=1, max_pc=None, alpha=0.05, anova_type='oneway',
+                        factor2=None):
     """
-    Test whether PC scores are significantly different between groups in an 
-    one-way anova.
+    Unified function for testing PC significance with flexible options.
     
     Parameters:
     -----------
@@ -737,266 +739,88 @@ def test_pc_significance(pca_results, categoricals, group_by, pc_number=1,
     categoricals : pd.DataFrame
         Categorical data for grouping
     group_by : str
-        Column name to group by
+        Primary factor to compare (e.g., 'Treatment', 'Day')
+    mean_by : str, optional
+        Factor to group by before calculating means (e.g., 'Chip', 'Subject').
+        If None, uses individual observations.
     pc_number : int, default=1
-        Which PC to test (1-indexed)
+        Which PC to test (1-indexed). Ignored if max_pc is specified.
+    max_pc : int, optional
+        If specified, tests all PCs from 1 to max_pc. Overrides pc_number.
     alpha : float, default=0.05
         Significance level
-    test_type : str, default='auto'
-        Type of test ('auto', 'anova', 'ttest')
+    anova_type : str, default='oneway'
+        Type of ANOVA: 'oneway' or 'twoway'
+    factor2 : str, optional
+        Second factor for two-way ANOVA. Required if anova_type='twoway'.
     
     Returns:
     --------
-    dict: Test results and creates boxplot with significance annotations
+    dict or list: 
+        - Single dict if testing one PC
+        - List of dicts if testing multiple PCs (max_pc specified)
+    
+    Examples:
+    ---------
+    # Simple one-way ANOVA on PC1
+    result = test_pca_statistics(pca_results, categoricals, group_by='Treatment')
+    
+    # With grouped means (e.g., mean by subject within treatment)
+    result = test_pca_statistics(pca_results, categoricals, group_by='Day', mean_by='Chip')
+    
+    # Multiple PCs
+    results = test_pca_statistics(pca_results, categoricals, group_by='Treatment', max_pc=5)
+    
+    # Two-way ANOVA
+    result = test_pca_statistics(pca_results, categoricals, group_by='Treatment', 
+                                 factor2='Time', anova_type='twoway')
     """
-    scores = pca_results['scores']
-    pc_col = f'PC{pc_number}'
     
-    if pc_col not in scores.columns:
-        raise ValueError(f"{pc_col} not found in scores. Available: {list(scores.columns)}")
     
-    if group_by not in categoricals.columns:
-        raise ValueError(f"{group_by} not found in categoricals. Available: {list(categoricals.columns)}")
+    # Validate inputs
+    if anova_type not in ['oneway', 'twoway']:
+        raise ValueError("anova_type must be 'oneway' or 'twoway'")
     
-    # Combine scores with grouping variable
-    test_data = pd.DataFrame({
-        'PC_scores': scores[pc_col],
-        'Group': categoricals[group_by].astype(str)
-    }).dropna()
+    if anova_type == 'twoway' and factor2 is None:
+        raise ValueError("factor2 must be specified for two-way ANOVA")
     
-    groups = test_data['Group'].unique()
-    group_data = [test_data[test_data['Group'] == group]['PC_scores'].values 
-                  for group in groups]
-    
-    # Perform overall ANOVA test
-    f_stat, p_anova = f_oneway(*group_data)
-    
-    # Determine test type
-    if test_type == 'auto':
-        test_type = 'ttest' if len(groups) == 2 else 'anova'
-    
-    # Perform pairwise t-tests if more than 2 groups
-    pairwise_results = []
-    p_ttest = None
-    t_stat = None
-    
-    if len(groups) == 2:
-        # Two groups - perform t-test
-        data1 = test_data[test_data['Group'] == groups[0]]['PC_scores']
-        data2 = test_data[test_data['Group'] == groups[1]]['PC_scores']
-        t_stat, p_ttest = ttest_ind(data1, data2)
-    elif len(groups) > 2:
-        # Multiple groups - perform pairwise t-tests
-        for group1, group2 in combinations(groups, 2):
-            data1 = test_data[test_data['Group'] == group1]['PC_scores']
-            data2 = test_data[test_data['Group'] == group2]['PC_scores']
-            t_stat_pair, p_val = ttest_ind(data1, data2)
-            pairwise_results.append({
-                'Group1': group1,
-                'Group2': group2,
-                'p_value': p_val,
-                'significant': p_val < alpha
-            })
-    
-    # Create boxplot with significance annotations
-    fig, ax = plt.subplots(figsize=(10, 8))
-    
-    # Create boxplot
-    bp = ax.boxplot([group_data[i] for i in range(len(groups))], 
-                    labels=groups, patch_artist=True)
-    
-    # Color boxes based on significance
-    if len(groups) == 2 and p_ttest is not None:
-        box_color = 'lightcoral' if p_ttest < alpha else 'lightblue'
-    else:
-        box_color = 'lightcoral' if p_anova < alpha else 'lightblue'
-    
-    for patch in bp['boxes']:
-        patch.set_facecolor(box_color)
-        patch.set_alpha(0.7)
-    
-    # Add significance annotations
-    max_y = max([max(data) for data in group_data])
-    min_y = min([min(data) for data in group_data])
-    y_range = max_y - min_y
-    
-    # Fixed logic for showing significance stars
-    if len(groups) == 2 and p_ttest is not None:
-        # For two groups, show t-test result with stars
-        if p_ttest < alpha:
-            line_y = max_y + 0.08 * y_range
-            ax.plot([1, 2], [line_y, line_y], 'k-', linewidth=1.5)
-            stars = '***' if p_ttest < 0.001 else '**' if p_ttest < 0.01 else '*'
-            ax.text(1.5, line_y + 0.01 * y_range, stars, ha='center', va='bottom', fontsize=16)
+    # Multi-PC mode
+    if max_pc is not None:
+        results_list = []
+        for i in range(1, max_pc + 1):
+            print(f"\n{'='*70}")
+            print(f"Testing PC{i}")
+            print(f"{'='*70}")
+            result = test_pca_statistics(
+                pca_results, categoricals, group_by, mean_by=mean_by,
+                pc_number=i, max_pc=None, alpha=alpha, 
+                anova_type=anova_type, factor2=factor2
+            )
+            results_list.append(result)
         
-        # Show p-value text in a text box for better visibility
-        p_text = f'p = {p_ttest:.4f}' if p_ttest >= 0.001 else 'p < 0.001'
-        ax.text(0.98, 0.98, p_text, transform=ax.transAxes, 
-               ha='right', va='top', fontsize=11,
-               bbox=dict(boxstyle='round,pad=0.5', facecolor='white', 
-                        edgecolor='gray', alpha=0.9))
-        
-    elif len(groups) > 2:
-        # For multiple groups, show ANOVA result and pairwise comparisons
-        if p_anova < alpha:
-            # Add overall ANOVA significance annotation in top corner
-            anova_text = f'ANOVA: p = {p_anova:.4f}' if p_anova >= 0.001 else 'ANOVA: p < 0.001'
-            ax.text(0.02, 0.98, anova_text, 
-                   transform=ax.transAxes, va='top', ha='left', fontsize=11,
-                   bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', 
-                            edgecolor='orange', alpha=0.9))
-            
-            # Add pairwise comparisons with stars
-            y_offset = 0.08 * y_range
-            significant_pairs = [r for r in pairwise_results if r['significant']]
-            
-            for i, result in enumerate(significant_pairs[:5]):  # Limit to 5 pairs to avoid clutter
-                group1_idx = list(groups).index(result['Group1']) + 1
-                group2_idx = list(groups).index(result['Group2']) + 1
-                
-                y_pos = max_y + y_offset * (i + 1)
-                ax.plot([group1_idx, group2_idx], [y_pos, y_pos], 'k-', linewidth=1.5)
-                
-                p_val = result['p_value']
-                stars = '***' if p_val < 0.001 else '**' if p_val < 0.01 else '*'
-                ax.text((group1_idx + group2_idx) / 2, y_pos + 0.01 * y_range, 
-                       stars, ha='center', va='bottom', fontsize=12)
-        
-        # Also show all pairwise t-tests as text annotations (for non-significant ones too)
+        # Print summary
+        print(f"\n{'='*70}")
+        print("SUMMARY - Statistical Tests")
+        if mean_by:
+            print(f"Comparing: {group_by} (grouped by {mean_by})")
         else:
-            # Show pairwise results even if overall ANOVA is not significant
-            y_offset = 0.08 * y_range
-            for i, result in enumerate(pairwise_results[:3]):  # Show top 3 to avoid clutter
-                group1_idx = list(groups).index(result['Group1']) + 1
-                group2_idx = list(groups).index(result['Group2']) + 1
-                
-                y_pos = max_y + y_offset * (i + 1)
-                
-                if result['significant']:
-                    # Draw line and show stars for significant pairs
-                    ax.plot([group1_idx, group2_idx], [y_pos, y_pos], 'k-', linewidth=1.5)
-                    p_val = result['p_value']
-                    stars = '***' if p_val < 0.001 else '**' if p_val < 0.01 else '*'
-                    ax.text((group1_idx + group2_idx) / 2, y_pos + 0.01 * y_range, 
-                           stars, ha='center', va='bottom', fontsize=12)
+            print(f"Comparing: {group_by}")
+        if anova_type == 'twoway':
+            print(f"Two-way ANOVA with factors: {group_by} × {factor2}")
+        print(f"{'='*70}")
+        
+        significant_pcs = [i for i, r in enumerate(results_list, 1) if r.get('significant', False)]
+        print(f"Significant PCs (α={alpha}): {significant_pcs if significant_pcs else 'None'}")
+        
+        for i, result in enumerate(results_list, 1):
+            if anova_type == 'oneway':
+                print(f"PC{i}: F={result['anova_f']:.3f}, p={result['anova_p']:.4f} {'✓' if result.get('significant') else '✗'}")
+            else:
+                print(f"PC{i}: {group_by} p={result['main_effect1_p']:.4f}, {factor2} p={result['main_effect2_p']:.4f}, Interaction p={result['interaction_p']:.4f}")
+        
+        return results_list
     
-    ax.set_ylabel(f'{pc_col} Scores', fontsize=12)
-    ax.set_xlabel(group_by, fontsize=12)
-    
-    # Restore previous title format with statistical details
-    if len(groups) == 2 and p_ttest is not None:
-        significance_text = " (Significant)" if p_ttest < alpha else " (Not Significant)"
-        ax.set_title(f'{pc_col} Scores by {group_by}\n' + 
-                    f'T-test: t={t_stat:.3f}, p={p_ttest:.4f}{significance_text}',
-                    fontsize=12, pad=20)
-    else:
-        significance_text = " (Significant)" if p_anova < alpha else " (Not Significant)"
-        ax.set_title(f'{pc_col} Scores by {group_by}\n' + 
-                    f'ANOVA: F={f_stat:.3f}, p={p_anova:.4f}{significance_text}',
-                    fontsize=12, pad=20)
-    
-    # Adjust y-axis limits to ensure annotations fit without touching frame
-    if len(groups) == 2:
-        # For two groups, less margin needed
-        y_margin = 0.25 * y_range if p_ttest < alpha else 0.15 * y_range
-    else:
-        # For multiple groups, more margin for pairwise comparisons
-        n_sig_pairs = sum(1 for r in pairwise_results if r['significant'])
-        y_margin = (0.08 * (min(n_sig_pairs, 5) + 2)) * y_range if p_anova < alpha else 0.15 * y_range
-    
-    ax.set_ylim(min_y - 0.1 * y_range, max_y + y_margin)
-    
-    ax.grid(True, alpha=0.3)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
-    
-    # Print results
-    print(f"Statistical Test Results for {pc_col}:")
-    if len(groups) == 2 and p_ttest is not None:
-        print(f"T-test t-statistic: {t_stat:.4f}")
-        print(f"T-test p-value: {p_ttest:.4f}")
-        print(f"Significant at α={alpha}: {'Yes' if p_ttest < alpha else 'No'}")
-    else:
-        print(f"ANOVA F-statistic: {f_stat:.4f}")
-        print(f"ANOVA p-value: {p_anova:.4f}")
-        print(f"Significant at α={alpha}: {'Yes' if p_anova < alpha else 'No'}")
-    
-    if len(groups) > 2:
-        print("\nPairwise comparisons (t-tests):")
-        for result in pairwise_results:
-            sig_text = "***" if result['p_value'] < 0.001 else "**" if result['p_value'] < 0.01 else "*" if result['significant'] else "ns"
-            print(f"  {result['Group1']} vs {result['Group2']}: p={result['p_value']:.4f} {sig_text}")
-    
-    return {
-        'anova_f': f_stat,
-        'anova_p': p_anova,
-        'ttest_t': t_stat,
-        'ttest_p': p_ttest,
-        'pairwise_results': pairwise_results,
-        'significant': (p_ttest < alpha if p_ttest is not None else p_anova < alpha),
-        'group_means': test_data.groupby('Group')['PC_scores'].mean(),
-        'group_std': test_data.groupby('Group')['PC_scores'].std(),
-        'test_used': test_type
-    }
-
-#%%
-def multi_stat(pca_results: dict, categoricals: pd.DataFrame, group_by: str, max_PC: int=10):
-    '''
-    Performs the test_pc_significance() function for multiple PCs.
-
-    Parameters
-    ----------
-    pca_results : dict
-        A dictionary containing the results of your PCA
-    categoricals : pd.DataFrame
-        DataFrame containing all categorical variables
-    group_by : str
-        Name of the column containing your groups
-    max_PC : int, optional
-        The PC until the function is running test_pc_signigficance The default is 10.
-
-    Returns
-    -------
-    None.
-
-    '''
-    for i in range(max_PC):
-        test_pc_significance(pca_results, categoricals, group_by, pc_number=i+1, 
-                                alpha=0.05, test_type='auto')
-    return
-
-#%%
-def test_pc_significance_grouped_means(pca_results: dict, categoricals: pd.DataFrame, group_by:str, mean_by:str, 
-                                       pc_number=1, alpha=0.05):
-    """
-    Test whether PC scores differ across levels of group_by, using means calculated 
-    from grouping by both group_by and mean_by.
-    
-    E.g., compare across Days by taking the mean PC score for each (Chip, Day) combination,
-    then testing if these means differ significantly across Days.
-    
-    Parameters:
-    -----------
-    pca_results : dict
-        Results from perform_pca function
-    categoricals : pd.DataFrame
-        Categorical data for grouping
-    group_by : str
-        Factor to compare across (e.g., 'Day'). This is what we're testing.
-    mean_by : str
-        Factor to group by before calculating means (e.g., 'Chip'). 
-        Means are calculated as groupby(group_by, mean_by).mean()
-    pc_number : int, default=1
-        Which PC to test (1-indexed)
-    alpha : float, default=0.05
-        Significance level
-    
-    Returns:
-    --------
-    dict: Test results and creates visualization
-    """
-    
+    # Single PC mode
     scores = pca_results['scores']
     pc_col = f'PC{pc_number}'
     
@@ -1005,109 +829,144 @@ def test_pc_significance_grouped_means(pca_results: dict, categoricals: pd.DataF
     
     if group_by not in categoricals.columns:
         raise ValueError(f"{group_by} not found in categoricals")
-    if mean_by not in categoricals.columns:
-        raise ValueError(f"{mean_by} not found in categoricals")
     
-    # Combine scores with both grouping variables
-    test_data = pd.DataFrame({
-        'PC_scores': scores[pc_col],
-        'group_by': categoricals[group_by].astype(str),
-        'mean_by': categoricals[mean_by].astype(str)
-    }).dropna()
+    if anova_type == 'twoway' and factor2 not in categoricals.columns:
+        raise ValueError(f"{factor2} not found in categoricals")
     
-    # Calculate means for each (group_by, mean_by) combination
-    grouped_means = test_data.groupby(['group_by', 'mean_by'])['PC_scores'].mean().reset_index()
-    grouped_means.columns = ['group_by', 'mean_by', 'mean_score']
-    
-    # Get unique levels of group_by
-    group_levels = sorted(grouped_means['group_by'].unique())
-    
-    # For each level of group_by, collect the means (one from each mean_by)
-    group_data_for_anova = []
-    group_labels_for_plot = []
-    
-    for level in group_levels:
-        means_at_level = grouped_means[grouped_means['group_by'] == level]['mean_score'].values
-        group_data_for_anova.append(means_at_level)
-        group_labels_for_plot.append(level)
-    
-    # Perform ANOVA on the means
-    f_stat, p_anova = f_oneway(*group_data_for_anova)
-    
-    # Pairwise t-tests for ALL group combinations
-    pairwise_results = []
-    for group1, group2 in combinations(group_levels, 2):
-        data1 = grouped_means[grouped_means['group_by'] == group1]['mean_score'].values
-        data2 = grouped_means[grouped_means['group_by'] == group2]['mean_score'].values
+    # Prepare data
+    if mean_by is not None:
+        # Grouped means mode
+        if mean_by not in categoricals.columns:
+            raise ValueError(f"{mean_by} not found in categoricals")
         
-        if len(data1) > 0 and len(data2) > 0:
-            t_stat_pair, p_val = ttest_ind(data1, data2)
-            pairwise_results.append({
-                'Group1': group1,
-                'Group2': group2,
-                'p_value': p_val,
-                'significant': p_val < alpha
-            })
-    
-    # Create boxplot (matching test_pc_significance style)
-    fig, ax = plt.subplots(figsize=(10, 8))
-    
-    # Create boxplot
-    bp = ax.boxplot(group_data_for_anova, labels=group_labels_for_plot, patch_artist=True)
-    
-    # Color boxes based on significance
-    if len(group_levels) == 2 and len(pairwise_results) > 0:
-        box_color = 'lightcoral' if pairwise_results[0]['p_value'] < alpha else 'lightblue'
-    else:
-        box_color = 'lightcoral' if p_anova < alpha else 'lightblue'
-    
-    for patch in bp['boxes']:
-        patch.set_facecolor(box_color)
-        patch.set_alpha(0.7)
-    
-    # Add significance annotations
-    max_y = max([max(data) for data in group_data_for_anova])
-    min_y = min([min(data) for data in group_data_for_anova])
-    y_range = max_y - min_y
-    
-    # Fixed logic for showing significance stars (matching test_pc_significance)
-    if len(group_levels) == 2 and len(pairwise_results) > 0:
-        p_ttest = pairwise_results[0]['p_value']
-        # For two groups, show t-test result with stars
-        if p_ttest < alpha:
-            line_y = max_y + 0.08 * y_range
-            ax.plot([1, 2], [line_y, line_y], 'k-', linewidth=1.5)
-            stars = '***' if p_ttest < 0.001 else '**' if p_ttest < 0.01 else '*'
-            ax.text(1.5, line_y + 0.01 * y_range, stars, ha='center', va='bottom', fontsize=16)
+        test_data = pd.DataFrame({
+            'PC_scores': scores[pc_col],
+            'group_by': categoricals[group_by].astype(str),
+            'mean_by': categoricals[mean_by].astype(str)
+        })
         
-        # Show p-value text in a text box for better visibility
-        p_text = f'p = {p_ttest:.4f}' if p_ttest >= 0.001 else 'p < 0.001'
-        ax.text(0.98, 0.98, p_text, transform=ax.transAxes, 
-               ha='right', va='top', fontsize=11,
-               bbox=dict(boxstyle='round,pad=0.5', facecolor='white', 
-                        edgecolor='gray', alpha=0.9))
+        if anova_type == 'twoway':
+            test_data['factor2'] = categoricals[factor2].astype(str)
         
-    elif len(group_levels) > 2:
-        # For multiple groups, show ANOVA result and ALL pairwise comparisons
-        if p_anova < alpha:
-            # Add overall ANOVA significance annotation in top corner
-            anova_text = f'ANOVA: p = {p_anova:.4f}' if p_anova >= 0.001 else 'ANOVA: p < 0.001'
-            ax.text(0.02, 0.98, anova_text, 
-                   transform=ax.transAxes, va='top', ha='left', fontsize=11,
-                   bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', 
-                            edgecolor='orange', alpha=0.9))
+        test_data = test_data.dropna()
         
-        # Show ALL significant pairwise comparisons (not just those with group 1)
-        y_offset = 0.08 * y_range
-        significant_pairs = [r for r in pairwise_results if r['significant']]
-        
-        if significant_pairs:
-            # Show all significant pairs (or limit if too many)
-            max_pairs_to_show = min(len(significant_pairs), 10)  # Increased limit
+        # Calculate means
+        if anova_type == 'oneway':
+            grouped_means = test_data.groupby(['group_by', 'mean_by'])['PC_scores'].mean().reset_index()
+            grouped_means.columns = ['group_by', 'mean_by', 'mean_score']
+            test_data_final = grouped_means.rename(columns={'group_by': 'Group', 'mean_score': 'PC_scores'})
+        else:
+            # For two-way ANOVA with mean_by, we need to average within each combination
+            grouped_means = test_data.groupby(['group_by', 'factor2', 'mean_by'])['PC_scores'].mean().reset_index()
+            grouped_means.columns = ['group_by', 'factor2', 'mean_by', 'mean_score']
+            test_data_final = grouped_means.rename(columns={'group_by': 'Group', 'mean_score': 'PC_scores'})
+            test_data_final['Factor2'] = test_data_final['factor2']
             
+            # Check if we have enough data for two-way ANOVA
+            n_combinations = len(test_data_final.groupby(['Group', 'Factor2']))
+            n_group_levels = len(test_data_final['Group'].unique())
+            n_factor2_levels = len(test_data_final['Factor2'].unique())
+            
+            if n_combinations < n_group_levels * n_factor2_levels:
+                print(f"Warning: Not all factor combinations have data after grouping by {mean_by}")
+                print(f"Expected {n_group_levels * n_factor2_levels} combinations, found {n_combinations}")
+            
+            # Check minimum replicates per combination
+            combo_counts = test_data_final.groupby(['Group', 'Factor2']).size()
+            if combo_counts.min() < 2:
+                print(f"Warning: Some factor combinations have fewer than 2 replicates after grouping by {mean_by}")
+                print("Consider using one-way ANOVA or not using mean_by for two-way ANOVA")
+    else:
+        # Individual observations mode
+        test_data = pd.DataFrame({
+            'PC_scores': scores[pc_col],
+            'Group': categoricals[group_by].astype(str)
+        })
+        
+        if anova_type == 'twoway':
+            test_data['Factor2'] = categoricals[factor2].astype(str)
+        
+        test_data_final = test_data.dropna()
+    
+    # Perform statistical tests
+    groups = test_data_final['Group'].unique()
+    
+    if anova_type == 'oneway':
+        # One-way ANOVA or t-test
+        group_data = [test_data_final[test_data_final['Group'] == group]['PC_scores'].values 
+                      for group in groups]
+        
+        f_stat, p_anova = f_oneway(*group_data)
+        
+        # Pairwise comparisons
+        pairwise_results = []
+        p_ttest = None
+        t_stat = None
+        
+        if len(groups) == 2:
+            data1 = test_data_final[test_data_final['Group'] == groups[0]]['PC_scores']
+            data2 = test_data_final[test_data_final['Group'] == groups[1]]['PC_scores']
+            t_stat, p_ttest = ttest_ind(data1, data2)
+        
+        if len(groups) > 2:
+            for group1, group2 in combinations(groups, 2):
+                data1 = test_data_final[test_data_final['Group'] == group1]['PC_scores']
+                data2 = test_data_final[test_data_final['Group'] == group2]['PC_scores']
+                t_stat_pair, p_val = ttest_ind(data1, data2)
+                pairwise_results.append({
+                    'Group1': group1,
+                    'Group2': group2,
+                    'p_value': p_val,
+                    'significant': p_val < alpha
+                })
+        
+        # Create boxplot
+        fig, ax = plt.subplots(figsize=(10, 8))
+        bp = ax.boxplot(group_data, labels=groups, patch_artist=True)
+        
+        # Color boxes
+        if len(groups) == 2 and p_ttest is not None:
+            box_color = 'lightcoral' if p_ttest < alpha else 'lightblue'
+        else:
+            box_color = 'lightcoral' if p_anova < alpha else 'lightblue'
+        
+        for patch in bp['boxes']:
+            patch.set_facecolor(box_color)
+            patch.set_alpha(0.7)
+        
+        # Add significance annotations
+        max_y = max([max(data) for data in group_data])
+        min_y = min([min(data) for data in group_data])
+        y_range = max_y - min_y
+        
+        if len(groups) == 2 and p_ttest is not None:
+            if p_ttest < alpha:
+                line_y = max_y + 0.08 * y_range
+                ax.plot([1, 2], [line_y, line_y], 'k-', linewidth=1.5)
+                stars = '***' if p_ttest < 0.001 else '**' if p_ttest < 0.01 else '*'
+                ax.text(1.5, line_y + 0.01 * y_range, stars, ha='center', va='bottom', fontsize=16)
+            
+            p_text = f'p = {p_ttest:.4f}' if p_ttest >= 0.001 else 'p < 0.001'
+            ax.text(0.98, 0.98, p_text, transform=ax.transAxes, 
+                   ha='right', va='top', fontsize=11,
+                   bbox=dict(boxstyle='round,pad=0.5', facecolor='white', 
+                            edgecolor='gray', alpha=0.9))
+        
+        elif len(groups) > 2:
+            if p_anova < alpha:
+                anova_text = f'ANOVA: p = {p_anova:.4f}' if p_anova >= 0.001 else 'ANOVA: p < 0.001'
+                ax.text(0.02, 0.98, anova_text, 
+                       transform=ax.transAxes, va='top', ha='left', fontsize=11,
+                       bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', 
+                                edgecolor='orange', alpha=0.9))
+            
+            y_offset = 0.08 * y_range
+            significant_pairs = [r for r in pairwise_results if r['significant']]
+            
+            max_pairs_to_show = min(len(significant_pairs), 10)
             for i, result in enumerate(significant_pairs[:max_pairs_to_show]):
-                group1_idx = list(group_levels).index(result['Group1']) + 1
-                group2_idx = list(group_levels).index(result['Group2']) + 1
+                group1_idx = list(groups).index(result['Group1']) + 1
+                group2_idx = list(groups).index(result['Group2']) + 1
                 
                 y_pos = max_y + y_offset * (i + 1)
                 ax.plot([group1_idx, group2_idx], [y_pos, y_pos], 'k-', linewidth=1.5)
@@ -1118,131 +977,160 @@ def test_pc_significance_grouped_means(pca_results: dict, categoricals: pd.DataF
                        stars, ha='center', va='bottom', fontsize=12)
             
             if len(significant_pairs) > max_pairs_to_show:
-                # Add note if some pairs were omitted
                 ax.text(0.98, 0.02, f'(+{len(significant_pairs) - max_pairs_to_show} more)', 
                        transform=ax.transAxes, ha='right', va='bottom', 
                        fontsize=9, style='italic', color='gray')
-    
-    ax.set_ylabel(f'{pc_col} Scores', fontsize=12)
-    ax.set_xlabel(group_by, fontsize=12)
-    
-    # Title with statistical details (matching test_pc_significance format)
-    if len(group_levels) == 2 and len(pairwise_results) > 0:
-        p_ttest = pairwise_results[0]['p_value']
-        #t_stat = None  # We didn't store t_stat, but can calculate if needed
-        significance_text = " (Significant)" if p_ttest < alpha else " (Not Significant)"
-        ax.set_title(f'{pc_col} Scores by {group_by}\n(Mean by {mean_by}) ' + 
-                    f'T-test: p={p_ttest:.4f}{significance_text}',
-                    fontsize=12, pad=20)
-    else:
-        significance_text = " (Significant)" if p_anova < alpha else " (Not Significant)"
-        ax.set_title(f'{pc_col} Scores by {group_by}\n(Mean by {mean_by}) ' + 
-                    f'ANOVA: F={f_stat:.3f}, p={p_anova:.4f}{significance_text}',
-                    fontsize=12, pad=20)
-    
-    # Adjust y-axis limits to ensure annotations fit without touching frame
-    if len(group_levels) == 2:
-        # For two groups, less margin needed
-        p_ttest = pairwise_results[0]['p_value'] if len(pairwise_results) > 0 else 1.0
-        y_margin = 0.25 * y_range if p_ttest < alpha else 0.15 * y_range
-    else:
-        # For multiple groups, more margin for pairwise comparisons
-        n_sig_pairs = sum(1 for r in pairwise_results if r['significant'])
-        y_margin = (0.08 * (min(n_sig_pairs, 10) + 2)) * y_range if n_sig_pairs > 0 else 0.15 * y_range
-    
-    ax.set_ylim(min_y - 0.1 * y_range, max_y + y_margin)
-    
-    ax.grid(True, alpha=0.3)
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    plt.show()
-    
-    # Print results
-    print(f"\nGrouped Means Statistical Test Results for {pc_col}:")
-    print(f"Comparing: {group_by} (grouped by {mean_by})")
-    
-    if len(group_levels) == 2 and len(pairwise_results) > 0:
-        p_ttest = pairwise_results[0]['p_value']
-        print(f"T-test p-value: {p_ttest:.4f}")
-        print(f"Significant at α={alpha}: {'Yes' if p_ttest < alpha else 'No'}")
-    else:
-        print(f"ANOVA F-statistic: {f_stat:.4f}")
-        print(f"ANOVA p-value: {p_anova:.4f}")
-        print(f"Significant at α={alpha}: {'Yes' if p_anova < alpha else 'No'}")
-    
-    if len(group_levels) > 2:
-        print("\nPairwise comparisons (t-tests):")
-        for result in pairwise_results:
-            sig_text = "***" if result['p_value'] < 0.001 else "**" if result['p_value'] < 0.01 else "*" if result['significant'] else "ns"
-            print(f"  {result['Group1']} vs {result['Group2']}: p={result['p_value']:.4f} {sig_text}")
-    
-    print(f"\nDetailed means for each ({group_by}, {mean_by}) combination:")
-    print(grouped_means)
-    
-    return {
-        'anova_f': f_stat,
-        'anova_p': p_anova,
-        'ttest_p': pairwise_results[0]['p_value'] if len(pairwise_results) > 0 and len(group_levels) == 2 else None,
-        'pairwise_results': pairwise_results,
-        'significant': (pairwise_results[0]['p_value'] < alpha if len(pairwise_results) > 0 and len(group_levels) == 2 else p_anova < alpha),
-        'group_means': grouped_means,
-        'group_by': group_by,
-        'mean_by': mean_by
-    }
-
-#%%
-def multi_stat_grouped_means(pca_results: dict, categoricals: pd.DataFrame, 
-                             group_by: str, mean_by: str, max_PC: int=10):
-    '''
-    Performs grouped means analysis for multiple PCs using test_pc_significance_grouped_means.
-    
-    Parameters
-    ----------
-    pca_results : dict
-        A dictionary containing the results of your PCA
-    categoricals : pd.DataFrame
-        DataFrame containing all categorical variables
-    group_by : str
-        Factor to compare across (e.g., 'Day')
-    mean_by : str
-        Factor to group by before calculating means (e.g., 'Chip')
-    max_PC : int, optional
-        The maximum PC number to test. Default is 10.
-    
-    Returns
-    -------
-    list: List of dictionaries containing results for each PC
-    '''
-    results_list = []
-    
-    for i in range(1, max_PC + 1):
-        print(f"\n{'='*70}")
-        print(f"Testing PC{i}")
-        print(f"{'='*70}")
         
-        result = test_pc_significance_grouped_means(
-            pca_results, 
-            categoricals, 
-            group_by=group_by, 
-            mean_by=mean_by,
-            pc_number=i, 
-            alpha=0.05
-        )
-        results_list.append(result)
+        # Set labels and title
+        ax.set_ylabel(f'{pc_col} Scores', fontsize=12)
+        ax.set_xlabel(group_by, fontsize=12)
+        
+        if len(groups) == 2 and p_ttest is not None:
+            significance_text = " (Significant)" if p_ttest < alpha else " (Not Significant)"
+            title = f'{pc_col} Scores by {group_by}'
+            if mean_by:
+                title += f'\n(Mean by {mean_by}) '
+            title += f'T-test: t={t_stat:.3f}, p={p_ttest:.4f}{significance_text}'
+        else:
+            significance_text = " (Significant)" if p_anova < alpha else " (Not Significant)"
+            title = f'{pc_col} Scores by {group_by}'
+            if mean_by:
+                title += f'\n(Mean by {mean_by}) '
+            title += f'ANOVA: F={f_stat:.3f}, p={p_anova:.4f}{significance_text}'
+        
+        ax.set_title(title, fontsize=12, pad=20)
+        
+        # Adjust y-limits
+        if len(groups) == 2:
+            y_margin = 0.25 * y_range if (p_ttest and p_ttest < alpha) else 0.15 * y_range
+        else:
+            n_sig_pairs = sum(1 for r in pairwise_results if r['significant'])
+            y_margin = (0.08 * (min(n_sig_pairs, 10) + 2)) * y_range if n_sig_pairs > 0 else 0.15 * y_range
+        
+        ax.set_ylim(min_y - 0.1 * y_range, max_y + y_margin)
+        
+        ax.grid(True, alpha=0.3)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+        
+        # Print results
+        print(f"\nStatistical Test Results for {pc_col}:")
+        if mean_by:
+            print(f"Comparing: {group_by} (grouped by {mean_by})")
+        
+        if len(groups) == 2 and p_ttest is not None:
+            print(f"T-test t-statistic: {t_stat:.4f}")
+            print(f"T-test p-value: {p_ttest:.4f}")
+            print(f"Significant at α={alpha}: {'Yes' if p_ttest < alpha else 'No'}")
+        else:
+            print(f"ANOVA F-statistic: {f_stat:.4f}")
+            print(f"ANOVA p-value: {p_anova:.4f}")
+            print(f"Significant at α={alpha}: {'Yes' if p_anova < alpha else 'No'}")
+        
+        if len(groups) > 2:
+            print("\nPairwise comparisons (t-tests):")
+            for result in pairwise_results:
+                sig_text = "***" if result['p_value'] < 0.001 else "**" if result['p_value'] < 0.01 else "*" if result['significant'] else "ns"
+                print(f"  {result['Group1']} vs {result['Group2']}: p={result['p_value']:.4f} {sig_text}")
+        
+        return {
+            'anova_f': f_stat,
+            'anova_p': p_anova,
+            'ttest_t': t_stat,
+            'ttest_p': p_ttest,
+            'pairwise_results': pairwise_results,
+            'significant': (p_ttest < alpha if p_ttest is not None else p_anova < alpha),
+            'group_means': test_data_final.groupby('Group')['PC_scores'].mean(),
+            'group_std': test_data_final.groupby('Group')['PC_scores'].std(),
+            'test_used': 'ttest' if len(groups) == 2 else 'oneway_anova',
+            'pc_number': pc_number
+        }
     
-    # Summary of all results
-    print(f"\n{'='*70}")
-    print("SUMMARY - Grouped Means Analysis")
-    print(f"Comparing: {group_by} (grouped by {mean_by})")
-    print(f"{'='*70}")
-    
-    significant_pcs = [i for i, r in enumerate(results_list, 1) if r['significant']]
-    print(f"Significant PCs (α=0.05): {significant_pcs if significant_pcs else 'None'}")
-    
-    for i, result in enumerate(results_list, 1):
-        print(f"PC{i}: F={result['anova_f']:.3f}, p={result['anova_p']:.4f} {'✓' if result['significant'] else '✗'}")
-    
-    return results_list
+    else:  # Two-way ANOVA
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            
+            # Check if we have valid data for two-way ANOVA
+            if len(test_data_final) < 4:
+                raise ValueError(f"Not enough data for two-way ANOVA. Need at least 4 observations, have {len(test_data_final)}")
+            
+            # Check for empty cells in the design
+            contingency = test_data_final.groupby(['Group', 'Factor2']).size()
+            if contingency.min() == 0:
+                raise ValueError("Some factor combinations have no data. Cannot perform two-way ANOVA.")
+            
+            # Prepare formula
+            formula = 'PC_scores ~ C(Group) + C(Factor2) + C(Group):C(Factor2)'
+            
+            try:
+                model = ols(formula, data=test_data_final).fit()
+                anova_table = anova_lm(model, typ=2)
+            except ValueError as e:
+                if "must have at least one row in constraint matrix" in str(e):
+                    print("\nError: Cannot perform two-way ANOVA with the current data structure.")
+                    print("This typically happens when:")
+                    print("  1. Using mean_by reduces data to singleton observations")
+                    print("  2. Some factor combinations are missing")
+                    print("\nData summary:")
+                    print(f"  Total observations: {len(test_data_final)}")
+                    print(f"  Groups in {group_by}: {test_data_final['Group'].unique()}")
+                    print(f"  Groups in {factor2}: {test_data_final['Factor2'].unique()}")
+                    print("\nObservations per combination:")
+                    print(test_data_final.groupby(['Group', 'Factor2']).size())
+                    print("\nSuggestion: Try without mean_by parameter for two-way ANOVA")
+                    raise ValueError("Two-way ANOVA failed. See details above.") from e
+                else:
+                    raise
+        
+        # Extract results
+        main_effect1_p = anova_table.loc['C(Group)', 'PR(>F)']
+        main_effect2_p = anova_table.loc['C(Factor2)', 'PR(>F)']
+        interaction_p = anova_table.loc['C(Group):C(Factor2)', 'PR(>F)']
+        
+        # Create interaction plot
+        fig, ax = plt.subplots(figsize=(12, 8))
+        
+        for group in groups:
+            group_data = test_data_final[test_data_final['Group'] == group]
+            factor2_levels = sorted(group_data['Factor2'].unique())
+            means = [group_data[group_data['Factor2'] == f2]['PC_scores'].mean() 
+                    for f2 in factor2_levels]
+            ax.plot(factor2_levels, means, marker='o', label=group, linewidth=2, markersize=8)
+        
+        ax.set_xlabel(factor2, fontsize=12)
+        ax.set_ylabel(f'{pc_col} Scores', fontsize=12)
+        ax.set_title(f'{pc_col} Scores: {group_by} × {factor2} Interaction\n' +
+                    f'{group_by}: p={main_effect1_p:.4f}, {factor2}: p={main_effect2_p:.4f}, ' +
+                    f'Interaction: p={interaction_p:.4f}', fontsize=12)
+        ax.legend(title=group_by)
+        ax.grid(True, alpha=0.3)
+        plt.xticks(rotation=45)
+        plt.tight_layout()
+        plt.show()
+        
+        # Print results
+        print(f"\nTwo-Way ANOVA Results for {pc_col}:")
+        if mean_by:
+            print(f"Factors: {group_by} × {factor2} (grouped by {mean_by})")
+        else:
+            print(f"Factors: {group_by} × {factor2}")
+        print(f"\nMain effect {group_by}: p={main_effect1_p:.4f} {'***' if main_effect1_p < 0.001 else '**' if main_effect1_p < 0.01 else '*' if main_effect1_p < 0.05 else 'ns'}")
+        print(f"Main effect {factor2}: p={main_effect2_p:.4f} {'***' if main_effect2_p < 0.001 else '**' if main_effect2_p < 0.01 else '*' if main_effect2_p < 0.05 else 'ns'}")
+        print(f"Interaction: p={interaction_p:.4f} {'***' if interaction_p < 0.001 else '**' if interaction_p < 0.01 else '*' if interaction_p < 0.05 else 'ns'}")
+        
+        print("\nFull ANOVA Table:")
+        print(anova_table)
+        
+        return {
+            'anova_table': anova_table,
+            'main_effect1_p': main_effect1_p,
+            'main_effect2_p': main_effect2_p,
+            'interaction_p': interaction_p,
+            'significant': min(main_effect1_p, main_effect2_p, interaction_p) < alpha,
+            'test_used': 'twoway_anova',
+            'pc_number': pc_number
+        }
 
 #%%
 def multi_loadings(pca_results, max_PC=5):
