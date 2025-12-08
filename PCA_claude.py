@@ -9,7 +9,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.decomposition import PCA
-from sklearn.preprocessing import StandardScaler
+#from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from scipy import stats
 from scipy.stats import ttest_ind, f_oneway
@@ -121,9 +121,10 @@ def crop_data(data: pd.DataFrame, start: int=None, end: int=None):
 
 #%%
 def perform_pca(data, categoricals=None, color_by=None, n_components=10, 
-                scale_data=False, interactive=False, figsize=(12, 8),
+                interactive=False, figsize=(12, 8),
                 pc_x=1, pc_y=2, html_path=None, detect_outliers=False,
-                outlier_alpha=0.05, outlier_components=None, outlier_action='show'):
+                outlier_alpha=0.05, outlier_components=None, outlier_action='show',
+                _random_state=42):  # NEW: Add random state for reproducibility
     """
     Perform PCA analysis on numeric data with optional categorical coloring and outlier detection.
     
@@ -137,8 +138,6 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
         Column name(s) from categoricals to color by
     n_components : int, default=10
         Number of principal components to compute
-    scale_data : bool, default=False
-        Whether to standardize the data before PCA
     interactive : bool, default=False
         Whether to create interactive plotly plots
     figsize : tuple, default=(12, 8)
@@ -160,7 +159,9 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
         What to do with detected outliers:
         - 'show': Display outliers with different markers (default)
         - 'hide': Don't display outliers in plots
-        - 'remove': Remove outliers from all results and statistics
+        - 'remove': Remove outliers from all results (single-pass, no recursion)
+    _random_state : int, default=42
+        Random state for reproducibility (internal parameter)
         
     Returns:
     --------
@@ -179,21 +180,20 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
     if pc_x == pc_y:
         raise ValueError("pc_x and pc_y must be different")
     
+    # CRITICAL FIX: Ensure data is sorted by index for reproducibility
+    data = data.sort_index()
+    if categoricals is not None:
+        categoricals = categoricals.sort_index()
+    
     # Handle missing data
     if data.isnull().sum().sum() > 0:
         print(f"Warning: Found {data.isnull().sum().sum()} missing values. Filling with column means.")
         data = data.fillna(data.mean())
     
-    # Prepare the pipeline
-    if scale_data:
-        pipeline = Pipeline([
-            ('scaler', StandardScaler()),
-            ('pca', PCA(n_components=n_components))
-        ])
-    else:
-        pipeline = Pipeline([
-            ('pca', PCA(n_components=n_components))
-        ])
+    # Prepare the pipeline - NO SCALING for Raman data
+    pipeline = Pipeline([
+        ('pca', PCA(n_components=n_components, random_state=_random_state))
+    ])
     
     # Fit PCA
     pca_scores = pipeline.fit_transform(data)
@@ -218,7 +218,6 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
     is_outlier = None
     
     if detect_outliers:
-        
         
         # Determine number of components to use for outlier detection
         n_outlier_components = outlier_components if outlier_components is not None else n_components
@@ -276,41 +275,55 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
         print(f"- Significance level (α): {outlier_alpha}")
         print(f"- Critical value: {t_squared_crit:.2f}")
         print(f"- Outliers detected: {n_outliers} ({n_outliers/n_samples*100:.1f}%)")
+        #print(f"- Outlier indices: {data.index[is_outlier].tolist()}")
         print(f"- Action: {outlier_action}")
 
         
-        # Handle outlier action
+        # CORRECTED: Handle outlier action with SINGLE-PASS removal (no recursion)
         if outlier_action == 'remove' and n_outliers > 0:
-            print(f"\nRemoving {n_outliers} outliers and re-running PCA...")
+            print("\n⚠ SINGLE-PASS OUTLIER REMOVAL (no recursive PCA)")
+            print(f"Removing {n_outliers} outliers identified in current PC space...")
             
-            # Remove outliers from data
-            data_clean = data[~is_outlier]
+            # Filter out outliers from scores for return
+            scores_df_clean = scores_df[~is_outlier].copy()
+            scores_df_clean.reset_index(drop=True, inplace=True)
             
-            # Remove outliers from categoricals if provided
+            # Filter categoricals if provided
             categoricals_clean = None
             if categoricals is not None:
-                categoricals_clean = categoricals[~is_outlier]
+                categoricals_clean = categoricals[~is_outlier].copy()
+                categoricals_clean.reset_index(drop=True, inplace=True)
             
-            # Re-run PCA without outliers (and without outlier detection to avoid recursion)
-            cleaned_results= perform_pca(
-                data=data_clean,
-                categoricals=categoricals_clean,
-                color_by=color_by,
-                n_components=min(n_components, data_clean.shape[0] - 1, data_clean.shape[1]),
-                scale_data=scale_data,
-                interactive=interactive,
-                figsize=figsize,
-                pc_x=pc_x,
-                pc_y=pc_y,
-                html_path=html_path,
-                detect_outliers=False  # Don't detect outliers again
-                )
+            # Store information about removed outliers
+            outlier_info['removed_indices'] = data.index[is_outlier].tolist()
+            outlier_info['removed_count'] = n_outliers
+            outlier_info['removal_method'] = 'single_pass'
             
-            cleaned_results["outlier_cats"] = categoricals_clean
-            cleaned_results["removed_outliers"] = data.index[is_outlier].tolist()
-            cleaned_results["n_outliers_removed"] = n_outliers
+            print(f"✓ Results now contain {len(scores_df_clean)} samples (removed {n_outliers})")
+            print("✓ Loadings and explained variance unchanged (based on full dataset)")
+            print("⚠ Note: Outliers identified from ORIGINAL PC space (stable)")
             
-            return cleaned_results
+            # Update variables for plotting - use cleaned data
+            scores_df = scores_df_clean
+            categoricals = categoricals_clean
+            
+            # Update color variable with cleaned categoricals
+            if color_by is not None and categoricals_clean is not None:
+                if isinstance(color_by, str):
+                    color_by = [color_by]
+                
+                if len(color_by) == 1:
+                    color_var = categoricals_clean[color_by[0]].astype(str)
+                else:
+                    color_var = categoricals_clean[color_by].apply(
+                        lambda x: ' | '.join(x.astype(str)), axis=1
+                    )
+            
+            # Clear outlier detection flag to prevent showing empty T² plot
+            detect_outliers = False
+            is_outlier = None
+            
+            # Continue to plotting section below (don't return early)
     
     # Convert PC indices to 0-based for array access
     pc_x_idx = pc_x - 1
@@ -491,7 +504,7 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
                 # Try to show plot as well
                 try:
                     fig.show()
-                except Exception as e:
+                except Exception:
                     print(f"Could not display interactive plot directly, but saved to {html_path}")
                     
             except Exception as e:
@@ -637,10 +650,14 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
         'color_variable': color_var if color_var is not None else None,
         'plotted_components': (pc_x, pc_y),
         'outlier_info': outlier_info
-        }
+    }
     
-    if 'categoricals_clean' in locals() and categoricals_clean is not None:
-        results["outlier_cats"] = categoricals_clean    
+    # Add outlier removal metadata if applicable
+    if detect_outliers and outlier_action == 'remove' and outlier_info and outlier_info['n_outliers'] > 0:
+        results['outlier_cats'] = categoricals
+        results['removed_outliers'] = outlier_info.get('removed_indices', [])
+        results['n_outliers_removed'] = outlier_info.get('removed_count', 0)
+        results['original_n_samples'] = outlier_info.get('removed_count', 0) + len(scores_df)
     
     return results
 

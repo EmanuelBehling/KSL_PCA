@@ -123,9 +123,6 @@ class PCAAnalysisGUI:
         self.n_components.set(10)
         self.n_components.grid(row=0, column=1, sticky='w', padx=5)
         
-        self.scale_data = tk.BooleanVar(value=True)
-        ttk.Checkbutton(frame, text="Scale Data (Standardize)", variable=self.scale_data).grid(row=1, column=0, columnspan=2, pady=5, sticky='w')
-        
         self.detect_outliers = tk.BooleanVar(value=False)
         ttk.Checkbutton(frame, text="Detect Outliers", variable=self.detect_outliers).grid(row=2, column=0, columnspan=2, pady=5, sticky='w')
         
@@ -402,8 +399,7 @@ class PCAAnalysisGUI:
                 data=self.data, 
                 categoricals=self.categoricals, 
                 color_by=color_by, 
-                n_components=int(self.n_components.get()), 
-                scale_data=self.scale_data.get(), 
+                n_components=int(self.n_components.get()),
                 interactive=False, 
                 pc_x=int(self.pc_x.get()), 
                 pc_y=int(self.pc_y.get()), 
