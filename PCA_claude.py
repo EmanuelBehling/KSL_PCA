@@ -653,11 +653,13 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
     }
     
     # Add outlier removal metadata if applicable
-    if detect_outliers and outlier_action == 'remove' and outlier_info and outlier_info['n_outliers'] > 0:
-        results['outlier_cats'] = categoricals
+    if outlier_action == 'remove' and outlier_info and outlier_info.get('n_outliers', 0) > 0:
+        # categoricals was already updated to categoricals_clean in the removal section above
+        results['outlier_cats'] = categoricals  # This is now the cleaned version
         results['removed_outliers'] = outlier_info.get('removed_indices', [])
         results['n_outliers_removed'] = outlier_info.get('removed_count', 0)
         results['original_n_samples'] = outlier_info.get('removed_count', 0) + len(scores_df)
+        
     
     return results
 
