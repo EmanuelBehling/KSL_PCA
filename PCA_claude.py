@@ -12,9 +12,9 @@ from sklearn.decomposition import PCA
 #from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
 from scipy import stats
-from scipy.stats import ttest_ind, f_oneway
-from statsmodels.formula.api import ols
-from statsmodels.stats.anova import anova_lm
+# from scipy.stats import ttest_ind, f_oneway
+# from statsmodels.formula.api import ols
+# from statsmodels.stats.anova import anova_lm
 from itertools import combinations
 import warnings
 warnings.filterwarnings('ignore')
@@ -651,16 +651,20 @@ def perform_pca(data, categoricals=None, color_by=None, n_components=10,
         'plotted_components': (pc_x, pc_y),
         'outlier_info': outlier_info
     }
-    
-    # Add outlier removal metadata if applicable
+
+    # Outlier removal metadata
     if outlier_action == 'remove' and outlier_info and outlier_info.get('n_outliers', 0) > 0:
-        # categoricals was already updated to categoricals_clean in the removal section above
-        results['outlier_cats'] = categoricals  # This is now the cleaned version
+        results['outlier_cats'] = categoricals  # already filtered earlier
         results['removed_outliers'] = outlier_info.get('removed_indices', [])
         results['n_outliers_removed'] = outlier_info.get('removed_count', 0)
         results['original_n_samples'] = outlier_info.get('removed_count', 0) + len(scores_df)
-        
-    
+
+    # Always include categoricals (cleaned if outliers removed)
+    if outlier_action == 'remove' and outlier_info and outlier_info.get('n_outliers', 0) > 0:
+        results['categoricals'] = categoricals  # cleaned version
+    else:
+        results['categoricals'] = categoricals  # original version
+
     return results
 
 
@@ -745,97 +749,70 @@ def plot_loadings(pca_results, n_components=[1, 2], figsize=(12, 6)):
     return loadings.iloc[:, valid_indices]
 
 #%%
-def test_pca_statistics(pca_results, categoricals, group_by, mean_by=None, 
-                        pc_number=1, max_pc=None, alpha=0.05, anova_type='oneway',
-                        factor2=None):
+def test_pca_statistics(pca_results, group_by=None, mean_by=None, 
+                        pc_number=1, max_pc=None):
     """
-    Unified function for testing PC significance with flexible options.
+    Create boxplots showing PC scores by groups with means and standard deviations.
     
     Parameters:
     -----------
     pca_results : dict
         Results from perform_pca function
-    categoricals : pd.DataFrame
-        Categorical data for grouping
+    categoricals : pd.DataFrame, optional
+        Categorical data for grouping. If None, uses pca_results['outlier_cats']
     group_by : str
         Primary factor to compare (e.g., 'Treatment', 'Day')
     mean_by : str, optional
         Factor to group by before calculating means (e.g., 'Chip', 'Subject').
-        If None, uses individual observations.
+        Creates pivot table structure with mean_by as rows, group_by as columns.
+        Individual means are shown as points on the boxplot.
     pc_number : int, default=1
         Which PC to test (1-indexed). Ignored if max_pc is specified.
     max_pc : int, optional
-        If specified, tests all PCs from 1 to max_pc. Overrides pc_number.
-    alpha : float, default=0.05
-        Significance level
-    anova_type : str, default='oneway'
-        Type of ANOVA: 'oneway' or 'twoway'
-    factor2 : str, optional
-        Second factor for two-way ANOVA. Required if anova_type='twoway'.
+        If specified, creates plots for all PCs from 1 to max_pc.
     
     Returns:
     --------
-    dict or list: 
-        - Single dict if testing one PC
-        - List of dicts if testing multiple PCs (max_pc specified)
-    
-    Examples:
-    ---------
-    # Simple one-way ANOVA on PC1
-    result = test_pca_statistics(pca_results, categoricals, group_by='Treatment')
-    
-    # With grouped means (e.g., mean by subject within treatment)
-    result = test_pca_statistics(pca_results, categoricals, group_by='Day', mean_by='Chip')
-    
-    # Multiple PCs
-    results = test_pca_statistics(pca_results, categoricals, group_by='Treatment', max_pc=5)
-    
-    # Two-way ANOVA
-    result = test_pca_statistics(pca_results, categoricals, group_by='Treatment', 
-                                 factor2='Time', anova_type='twoway')
+    dict or list of dicts containing:
+        - group_means: Mean PC scores per group
+        - group_std: Standard deviation per group
+        - pivot_table: Pivot table if mean_by was used (None otherwise)
+        - pc_number: Which PC was analyzed
     """
     
+    if "outlier_cats" in pca_results and isinstance(pca_results["outlier_cats"], pd.DataFrame):
+        categoricals = pca_results["outlier_cats"]
+        print("✓ Using cleaned categoricals from pca_results['outlier_cats']")
     
-    # Validate inputs
-    if anova_type not in ['oneway', 'twoway']:
-        raise ValueError("anova_type must be 'oneway' or 'twoway'")
+    elif "categoricals" in pca_results and isinstance(pca_results["categoricals"], pd.DataFrame):
+        categoricals = pca_results["categoricals"]
+        print("✓ Using original categoricals from pca_results['categoricals']")
     
-    if anova_type == 'twoway' and factor2 is None:
-        raise ValueError("factor2 must be specified for two-way ANOVA")
+    else:
+        raise ValueError(
+            "pca_results does not contain 'outlier_cats' or 'categoricals'. "
+            
+        )
+    
+    # Validate row alignment with PCA scores
+    if len(categoricals) != len(pca_results["scores"]):
+        raise ValueError(
+            f"Categoricals length ({len(categoricals)}) does not match "
+            f"PCA score length ({len(pca_results['scores'])})."
+    )
     
     # Multi-PC mode
     if max_pc is not None:
         results_list = []
         for i in range(1, max_pc + 1):
             print(f"\n{'='*70}")
-            print(f"Testing PC{i}")
+            print(f"PC{i} Visualization")
             print(f"{'='*70}")
             result = test_pca_statistics(
-                pca_results, categoricals, group_by, mean_by=mean_by,
-                pc_number=i, max_pc=None, alpha=alpha, 
-                anova_type=anova_type, factor2=factor2
+                pca_results, categoricals=categoricals, group_by=group_by, mean_by=mean_by,
+                pc_number=i, max_pc=None
             )
             results_list.append(result)
-        
-        # Print summary
-        print(f"\n{'='*70}")
-        print("SUMMARY - Statistical Tests")
-        if mean_by:
-            print(f"Comparing: {group_by} (grouped by {mean_by})")
-        else:
-            print(f"Comparing: {group_by}")
-        if anova_type == 'twoway':
-            print(f"Two-way ANOVA with factors: {group_by} × {factor2}")
-        print(f"{'='*70}")
-        
-        significant_pcs = [i for i, r in enumerate(results_list, 1) if r.get('significant', False)]
-        print(f"Significant PCs (α={alpha}): {significant_pcs if significant_pcs else 'None'}")
-        
-        for i, result in enumerate(results_list, 1):
-            if anova_type == 'oneway':
-                print(f"PC{i}: F={result['anova_f']:.3f}, p={result['anova_p']:.4f} {'✓' if result.get('significant') else '✗'}")
-            else:
-                print(f"PC{i}: {group_by} p={result['main_effect1_p']:.4f}, {factor2} p={result['main_effect2_p']:.4f}, Interaction p={result['interaction_p']:.4f}")
         
         return results_list
     
@@ -849,12 +826,9 @@ def test_pca_statistics(pca_results, categoricals, group_by, mean_by=None,
     if group_by not in categoricals.columns:
         raise ValueError(f"{group_by} not found in categoricals")
     
-    if anova_type == 'twoway' and factor2 not in categoricals.columns:
-        raise ValueError(f"{factor2} not found in categoricals")
-    
     # Prepare data
     if mean_by is not None:
-        # Grouped means mode
+        # PIVOT TABLE LOGIC
         if mean_by not in categoricals.columns:
             raise ValueError(f"{mean_by} not found in categoricals")
         
@@ -864,292 +838,149 @@ def test_pca_statistics(pca_results, categoricals, group_by, mean_by=None,
             'mean_by': categoricals[mean_by].astype(str)
         })
         
-        if anova_type == 'twoway':
-            test_data['factor2'] = categoricals[factor2].astype(str)
-        
         test_data = test_data.dropna()
         
-        # Calculate means
-        if anova_type == 'oneway':
-            grouped_means = test_data.groupby(['group_by', 'mean_by'])['PC_scores'].mean().reset_index()
-            grouped_means.columns = ['group_by', 'mean_by', 'mean_score']
-            test_data_final = grouped_means.rename(columns={'group_by': 'Group', 'mean_score': 'PC_scores'})
-        else:
-            # For two-way ANOVA with mean_by, we need to average within each combination
-            grouped_means = test_data.groupby(['group_by', 'factor2', 'mean_by'])['PC_scores'].mean().reset_index()
-            grouped_means.columns = ['group_by', 'factor2', 'mean_by', 'mean_score']
-            test_data_final = grouped_means.rename(columns={'group_by': 'Group', 'mean_score': 'PC_scores'})
-            test_data_final['Factor2'] = test_data_final['factor2']
-            
-            # Check if we have enough data for two-way ANOVA
-            n_combinations = len(test_data_final.groupby(['Group', 'Factor2']))
-            n_group_levels = len(test_data_final['Group'].unique())
-            n_factor2_levels = len(test_data_final['Factor2'].unique())
-            
-            if n_combinations < n_group_levels * n_factor2_levels:
-                print(f"Warning: Not all factor combinations have data after grouping by {mean_by}")
-                print(f"Expected {n_group_levels * n_factor2_levels} combinations, found {n_combinations}")
-            
-            # Check minimum replicates per combination
-            combo_counts = test_data_final.groupby(['Group', 'Factor2']).size()
-            if combo_counts.min() < 2:
-                print(f"Warning: Some factor combinations have fewer than 2 replicates after grouping by {mean_by}")
-                print("Consider using one-way ANOVA or not using mean_by for two-way ANOVA")
+        # Create pivot table structure
+        pivot_table = test_data.pivot_table(
+            values='PC_scores',
+            index='mean_by',      # Rows: mean_by (e.g., Chips)
+            columns='group_by',   # Columns: group_by (e.g., Days)
+            aggfunc='mean'
+        )
+        
+        print(f"\nPivot table structure ({mean_by} as rows, {group_by} as columns):")
+        print(pivot_table)
+        
+        # Reshape for plotting: each column becomes a group
+        test_data_final = pivot_table.melt(ignore_index=False, var_name='Group', value_name='PC_scores')
+        test_data_final = test_data_final.reset_index()
+        test_data_final = test_data_final.dropna()
+        
+        grouped_means = pivot_table.copy()
+        
     else:
-        # Individual observations mode
-        test_data = pd.DataFrame({
+        # Individual observations mode (no pivot)
+        test_data_final = pd.DataFrame({
             'PC_scores': scores[pc_col],
             'Group': categoricals[group_by].astype(str)
         })
         
-        if anova_type == 'twoway':
-            test_data['Factor2'] = categoricals[factor2].astype(str)
-        
-        test_data_final = test_data.dropna()
+        test_data_final = test_data_final.dropna()
+        grouped_means = None
     
-    # Perform statistical tests
-    groups = test_data_final['Group'].unique()
+    # Calculate statistics
+    groups = sorted(test_data_final['Group'].unique())
+    group_data = [test_data_final[test_data_final['Group'] == group]['PC_scores'].values 
+                  for group in groups]
     
-    if anova_type == 'oneway':
-        # One-way ANOVA or t-test
-        group_data = [test_data_final[test_data_final['Group'] == group]['PC_scores'].values 
-                      for group in groups]
-        
-        f_stat, p_anova = f_oneway(*group_data)
-        
-        # Pairwise comparisons
-        pairwise_results = []
-        p_ttest = None
-        t_stat = None
-        
-        if len(groups) == 2:
-            data1 = test_data_final[test_data_final['Group'] == groups[0]]['PC_scores']
-            data2 = test_data_final[test_data_final['Group'] == groups[1]]['PC_scores']
-            t_stat, p_ttest = ttest_ind(data1, data2)
-        
-        if len(groups) > 2:
-            for group1, group2 in combinations(groups, 2):
-                data1 = test_data_final[test_data_final['Group'] == group1]['PC_scores']
-                data2 = test_data_final[test_data_final['Group'] == group2]['PC_scores']
-                t_stat_pair, p_val = ttest_ind(data1, data2)
-                pairwise_results.append({
-                    'Group1': group1,
-                    'Group2': group2,
-                    'p_value': p_val,
-                    'significant': p_val < alpha
-                })
-        
-        # Create boxplot
-        fig, ax = plt.subplots(figsize=(10, 8))
-        bp = ax.boxplot(group_data, labels=groups, patch_artist=True)
-        
-        # Color boxes
-        if len(groups) == 2 and p_ttest is not None:
-            box_color = 'lightcoral' if p_ttest < alpha else 'lightblue'
+    means = [np.mean(data) for data in group_data]
+    stds = [np.std(data, ddof=1) for data in group_data]
+    medians = [np.median(data) for data in group_data]
+    
+    # Create plot
+    fig, ax = plt.subplots(figsize=(10, 8))
+    
+    # Track outlier counts for groups with many points
+    max_points_threshold = 30
+    outlier_counts = {}
+    
+    for i, group in enumerate(groups):
+        x_pos = i + 1
+        mean = means[i]
+        std = stds[i]
+        median = medians[i]
+        group_vals = test_data_final[test_data_final['Group'] == group]['PC_scores'].values
+        n_points = len(group_vals)
+    
+        # --- NEW STYLE: mean = red horizontal line ---
+        ax.plot([x_pos - 0.2, x_pos + 0.2], [mean, mean],
+                color='red', linewidth=3, zorder=5,
+                label='Mean' if i == 0 else '')
+    
+        # --- NEW STYLE: median = diamond marker ---
+        ax.plot(x_pos, median, marker='X', markersize=8,
+                color='darkblue', markeredgecolor='darkblue', zorder=6,
+                label='Median' if i == 0 else '')
+    
+        # Whiskers still represent mean ± SD
+        ax.plot([x_pos, x_pos], [mean - std, mean + std],
+                color='black', linewidth=1.5, zorder=4,
+                label='Mean±SD' if i == 0 else '')
+        ax.plot([x_pos - 0.1, x_pos + 0.1], [mean - std, mean - std],
+                color='black', linewidth=1.5, zorder=4)
+        ax.plot([x_pos - 0.1, x_pos + 0.1], [mean + std, mean + std],
+                color='black', linewidth=1.5, zorder=4)
+    
+        # Points overlay
+        if n_points <= max_points_threshold:
+            x_positions = np.random.normal(x_pos, 0.04, size=n_points)
+            ax.scatter(x_positions, group_vals, alpha=0.6, s=50,
+                       color='darkblue', edgecolors='black', linewidth=0.5, zorder=3,
+                       label='Data points' if i == 0 else '')
         else:
-            box_color = 'lightcoral' if p_anova < alpha else 'lightblue'
-        
-        for patch in bp['boxes']:
-            patch.set_facecolor(box_color)
-            patch.set_alpha(0.7)
-        
-        # Add significance annotations
-        max_y = max([max(data) for data in group_data])
-        min_y = min([min(data) for data in group_data])
-        y_range = max_y - min_y
-        
-        if len(groups) == 2 and p_ttest is not None:
-            if p_ttest < alpha:
-                line_y = max_y + 0.08 * y_range
-                ax.plot([1, 2], [line_y, line_y], 'k-', linewidth=1.5)
-                stars = '***' if p_ttest < 0.001 else '**' if p_ttest < 0.01 else '*'
-                ax.text(1.5, line_y + 0.01 * y_range, stars, ha='center', va='bottom', fontsize=16)
-            
-            p_text = f'p = {p_ttest:.4f}' if p_ttest >= 0.001 else 'p < 0.001'
-            ax.text(0.98, 0.98, p_text, transform=ax.transAxes, 
-                   ha='right', va='top', fontsize=11,
-                   bbox=dict(boxstyle='round,pad=0.5', facecolor='white', 
-                            edgecolor='gray', alpha=0.9))
-        
-        elif len(groups) > 2:
-            if p_anova < alpha:
-                anova_text = f'ANOVA: p = {p_anova:.4f}' if p_anova >= 0.001 else 'ANOVA: p < 0.001'
-                ax.text(0.02, 0.98, anova_text, 
-                       transform=ax.transAxes, va='top', ha='left', fontsize=11,
-                       bbox=dict(boxstyle='round,pad=0.5', facecolor='wheat', 
-                                edgecolor='orange', alpha=0.9))
-            
-            y_offset = 0.08 * y_range
-            significant_pairs = [r for r in pairwise_results if r['significant']]
-            
-            max_pairs_to_show = min(len(significant_pairs), 10)
-            for i, result in enumerate(significant_pairs[:max_pairs_to_show]):
-                group1_idx = list(groups).index(result['Group1']) + 1
-                group2_idx = list(groups).index(result['Group2']) + 1
-                
-                y_pos = max_y + y_offset * (i + 1)
-                ax.plot([group1_idx, group2_idx], [y_pos, y_pos], 'k-', linewidth=1.5)
-                
-                p_val = result['p_value']
-                stars = '***' if p_val < 0.001 else '**' if p_val < 0.01 else '*'
-                ax.text((group1_idx + group2_idx) / 2, y_pos + 0.01 * y_range, 
-                       stars, ha='center', va='bottom', fontsize=12)
-            
-            if len(significant_pairs) > max_pairs_to_show:
-                ax.text(0.98, 0.02, f'(+{len(significant_pairs) - max_pairs_to_show} more)', 
-                       transform=ax.transAxes, ha='right', va='bottom', 
-                       fontsize=9, style='italic', color='gray')
-        
-        # Set labels and title
-        ax.set_ylabel(f'{pc_col} Scores', fontsize=12)
-        ax.set_xlabel(group_by, fontsize=12)
-        
-        if len(groups) == 2 and p_ttest is not None:
-            significance_text = " (Significant)" if p_ttest < alpha else " (Not Significant)"
-            title = f'{pc_col} Scores by {group_by}'
-            if mean_by:
-                title += f'\n(Mean by {mean_by}) '
-            title += f'T-test: t={t_stat:.3f}, p={p_ttest:.4f}{significance_text}'
-        else:
-            significance_text = " (Significant)" if p_anova < alpha else " (Not Significant)"
-            title = f'{pc_col} Scores by {group_by}'
-            if mean_by:
-                title += f'\n(Mean by {mean_by}) '
-            title += f'ANOVA: F={f_stat:.3f}, p={p_anova:.4f}{significance_text}'
-        
-        ax.set_title(title, fontsize=12, pad=20)
-        
-        # Adjust y-limits
-        if len(groups) == 2:
-            y_margin = 0.25 * y_range if (p_ttest and p_ttest < alpha) else 0.15 * y_range
-        else:
-            n_sig_pairs = sum(1 for r in pairwise_results if r['significant'])
-            y_margin = (0.08 * (min(n_sig_pairs, 10) + 2)) * y_range if n_sig_pairs > 0 else 0.15 * y_range
-        
-        ax.set_ylim(min_y - 0.1 * y_range, max_y + y_margin)
-        
-        ax.grid(True, alpha=0.3)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.show()
-        
-        # Print results
-        print(f"\nStatistical Test Results for {pc_col}:")
+            outliers = np.sum((group_vals < mean - std) | (group_vals > mean + std))
+            outlier_counts[group] = {'total': n_points, 'outside_whiskers': outliers}
+            print(f"  Note: {group} has {n_points} points (>{max_points_threshold}), hiding individual points")
+            print(f"        {outliers} points outside Mean±SD whiskers")
+    
+    # Set labels and title
+    ax.set_ylabel(f'{pc_col} Scores', fontsize=12)
+    ax.set_xlabel(group_by, fontsize=12)
+    
+    # Set x-axis tick positions and labels
+    ax.set_xticks(range(1, len(groups) + 1))
+    ax.set_xticklabels(groups, rotation=45, ha='right')
+    
+    title = f'{pc_col} Scores by {group_by}'
+    if mean_by:
+        title += f'\n(Pivot: {mean_by} as rows, points show individual means)'
+    ax.set_title(title, fontsize=12, pad=20)
+    
+    # Add legend
+    handles, labels = ax.get_legend_handles_labels()
+    # Remove duplicate labels
+    by_label = dict(zip(labels, handles))
+    ax.legend(by_label.values(), by_label.keys(), loc='best', framealpha=0.9)
+    
+    ax.grid(True, alpha=0.3, axis='y')
+    plt.tight_layout()
+    plt.show()
+    
+    # Print summary statistics
+    print(f"\n{pc_col} Summary Statistics:")
+    print(f"Comparing: {group_by}")
+    if mean_by:
+        print(f"Structure: Pivot with {mean_by} as rows")
+        print("⚠ IMPORTANT: Statistics below are calculated on the PIVOT TABLE VALUES")
+        print(f"  - Mean = average of {mean_by} means within each {group_by}")
+        print(f"  - SD = standard deviation of {mean_by} means within each {group_by}")
+        print(f"  - n per group = number of {mean_by} levels")
+        print(f"n per group: {[len(test_data_final[test_data_final['Group'] == g]) for g in groups]}")
+    else:
+        print(f"n per group: {[len(test_data_final[test_data_final['Group'] == g]) for g in groups]}")
+    
+    print("\nGroup Statistics:")
+    for group, mean, std in zip(groups, means, stds):
         if mean_by:
-            print(f"Comparing: {group_by} (grouped by {mean_by})")
-        
-        if len(groups) == 2 and p_ttest is not None:
-            print(f"T-test t-statistic: {t_stat:.4f}")
-            print(f"T-test p-value: {p_ttest:.4f}")
-            print(f"Significant at α={alpha}: {'Yes' if p_ttest < alpha else 'No'}")
+            print(f"  {group}: Mean of {mean_by} means={mean:.4f}, SD of {mean_by} means={std:.4f}")
         else:
-            print(f"ANOVA F-statistic: {f_stat:.4f}")
-            print(f"ANOVA p-value: {p_anova:.4f}")
-            print(f"Significant at α={alpha}: {'Yes' if p_anova < alpha else 'No'}")
-        
-        if len(groups) > 2:
-            print("\nPairwise comparisons (t-tests):")
-            for result in pairwise_results:
-                sig_text = "***" if result['p_value'] < 0.001 else "**" if result['p_value'] < 0.01 else "*" if result['significant'] else "ns"
-                print(f"  {result['Group1']} vs {result['Group2']}: p={result['p_value']:.4f} {sig_text}")
-        
-        return {
-            'anova_f': f_stat,
-            'anova_p': p_anova,
-            'ttest_t': t_stat,
-            'ttest_p': p_ttest,
-            'pairwise_results': pairwise_results,
-            'significant': (p_ttest < alpha if p_ttest is not None else p_anova < alpha),
-            'group_means': test_data_final.groupby('Group')['PC_scores'].mean(),
-            'group_std': test_data_final.groupby('Group')['PC_scores'].std(),
-            'test_used': 'ttest' if len(groups) == 2 else 'oneway_anova',
-            'pc_number': pc_number
-        }
+            print(f"  {group}: Mean={mean:.4f}, SD={std:.4f}")
     
-    else:  # Two-way ANOVA
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            
-            # Check if we have valid data for two-way ANOVA
-            if len(test_data_final) < 4:
-                raise ValueError(f"Not enough data for two-way ANOVA. Need at least 4 observations, have {len(test_data_final)}")
-            
-            # Check for empty cells in the design
-            contingency = test_data_final.groupby(['Group', 'Factor2']).size()
-            if contingency.min() == 0:
-                raise ValueError("Some factor combinations have no data. Cannot perform two-way ANOVA.")
-            
-            # Prepare formula
-            formula = 'PC_scores ~ C(Group) + C(Factor2) + C(Group):C(Factor2)'
-            
-            try:
-                model = ols(formula, data=test_data_final).fit()
-                anova_table = anova_lm(model, typ=2)
-            except ValueError as e:
-                if "must have at least one row in constraint matrix" in str(e):
-                    print("\nError: Cannot perform two-way ANOVA with the current data structure.")
-                    print("This typically happens when:")
-                    print("  1. Using mean_by reduces data to singleton observations")
-                    print("  2. Some factor combinations are missing")
-                    print("\nData summary:")
-                    print(f"  Total observations: {len(test_data_final)}")
-                    print(f"  Groups in {group_by}: {test_data_final['Group'].unique()}")
-                    print(f"  Groups in {factor2}: {test_data_final['Factor2'].unique()}")
-                    print("\nObservations per combination:")
-                    print(test_data_final.groupby(['Group', 'Factor2']).size())
-                    print("\nSuggestion: Try without mean_by parameter for two-way ANOVA")
-                    raise ValueError("Two-way ANOVA failed. See details above.") from e
-                else:
-                    raise
-        
-        # Extract results
-        main_effect1_p = anova_table.loc['C(Group)', 'PR(>F)']
-        main_effect2_p = anova_table.loc['C(Factor2)', 'PR(>F)']
-        interaction_p = anova_table.loc['C(Group):C(Factor2)', 'PR(>F)']
-        
-        # Create interaction plot
-        fig, ax = plt.subplots(figsize=(12, 8))
-        
-        for group in groups:
-            group_data = test_data_final[test_data_final['Group'] == group]
-            factor2_levels = sorted(group_data['Factor2'].unique())
-            means = [group_data[group_data['Factor2'] == f2]['PC_scores'].mean() 
-                    for f2 in factor2_levels]
-            ax.plot(factor2_levels, means, marker='o', label=group, linewidth=2, markersize=8)
-        
-        ax.set_xlabel(factor2, fontsize=12)
-        ax.set_ylabel(f'{pc_col} Scores', fontsize=12)
-        ax.set_title(f'{pc_col} Scores: {group_by} × {factor2} Interaction\n' +
-                    f'{group_by}: p={main_effect1_p:.4f}, {factor2}: p={main_effect2_p:.4f}, ' +
-                    f'Interaction: p={interaction_p:.4f}', fontsize=12)
-        ax.legend(title=group_by)
-        ax.grid(True, alpha=0.3)
-        plt.xticks(rotation=45)
-        plt.tight_layout()
-        plt.show()
-        
-        # Print results
-        print(f"\nTwo-Way ANOVA Results for {pc_col}:")
-        if mean_by:
-            print(f"Factors: {group_by} × {factor2} (grouped by {mean_by})")
-        else:
-            print(f"Factors: {group_by} × {factor2}")
-        print(f"\nMain effect {group_by}: p={main_effect1_p:.4f} {'***' if main_effect1_p < 0.001 else '**' if main_effect1_p < 0.01 else '*' if main_effect1_p < 0.05 else 'ns'}")
-        print(f"Main effect {factor2}: p={main_effect2_p:.4f} {'***' if main_effect2_p < 0.001 else '**' if main_effect2_p < 0.01 else '*' if main_effect2_p < 0.05 else 'ns'}")
-        print(f"Interaction: p={interaction_p:.4f} {'***' if interaction_p < 0.001 else '**' if interaction_p < 0.01 else '*' if interaction_p < 0.05 else 'ns'}")
-        
-        print("\nFull ANOVA Table:")
-        print(anova_table)
-        
-        return {
-            'anova_table': anova_table,
-            'main_effect1_p': main_effect1_p,
-            'main_effect2_p': main_effect2_p,
-            'interaction_p': interaction_p,
-            'significant': min(main_effect1_p, main_effect2_p, interaction_p) < alpha,
-            'test_used': 'twoway_anova',
-            'pc_number': pc_number
-        }
+    # Print outlier information if any groups were hidden
+    if outlier_counts:
+        print("\n⚠ Groups with hidden points (n > 30):")
+        for group, counts in outlier_counts.items():
+            print(f"  {group}: {counts['total']} total points, {counts['outside_whiskers']} outside Mean±SD")
+    
+    return {
+        'group_means': pd.Series(means, index=groups, name=f'{pc_col}_mean'),
+        'group_std': pd.Series(stds, index=groups, name=f'{pc_col}_std'),
+        'pivot_table': grouped_means if mean_by else None,
+        'pc_number': pc_number,
+        'group_by': group_by,
+        'mean_by': mean_by,
+        'outlier_counts': outlier_counts if outlier_counts else None  # Track hidden groups
+    }
 
 #%%
 def multi_loadings(pca_results, max_PC=5):
@@ -1163,14 +994,11 @@ def export_data(pca_results: dict, categoricals: pd.DataFrame,
                 filetype: str = "xlsx"):
     """
     Export PCA results and associated data to Excel or Pickle files.
-
+    
     Parameters
     ----------
     pca_results : dict
-        Dictionary returned by perform_pca()
-    categoricals : pd.DataFrame
-        Original categorical data, will return only cleaned categoricals if 
-        outliers were removed
+        Dictionary returned by perform_pca() (must contain 'categoricals')
     output_directory : str
         Folder where exported files will be saved
     scores : bool, default=True
@@ -1186,13 +1014,14 @@ def export_data(pca_results: dict, categoricals: pd.DataFrame,
     # --- Safety and setup ---
     os.makedirs(output_directory, exist_ok=True)
     
-    # Determine categorical dataframe (outlier-cleaned if available)
-    cat_df = pca_results.get("outlier_cats", categoricals)
+    # Always use the categoricals the PCA function returned
+    cat_df = pca_results.get("categoricals", None)
+    
     if cat_df is None or not isinstance(cat_df, pd.DataFrame) or cat_df.empty:
-        print("Warning: No valid categorical data found. Skipping categorical export.")
+        print("Warning: No valid categoricals found in pca_results. Skipping categorical export.")
         cat_df = None
-
-    # --- Prepare DataFrames to export ---
+    
+    # --- Prepare export content ---
     dfs_to_export = {}
     
     if scores and "scores" in pca_results:
@@ -1209,7 +1038,7 @@ def export_data(pca_results: dict, categoricals: pd.DataFrame,
     
     if cat_df is not None:
         dfs_to_export["categoricals"] = cat_df
-
+    
     if not dfs_to_export:
         print("No data selected for export. Nothing saved.")
         return
@@ -1219,165 +1048,99 @@ def export_data(pca_results: dict, categoricals: pd.DataFrame,
         output_path = os.path.join(output_directory, "pca_results.xlsx")
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             for name, df in dfs_to_export.items():
-                df.to_excel(writer, sheet_name=name[:31])  # Excel sheet name limit = 31 chars
+                df.to_excel(writer, sheet_name=name[:31])  # Excel sheet name limit
         print(f"✅ PCA results successfully exported to '{output_path}'")
-
+    
     elif filetype.lower() in ["pkl", "pickle"]:
         for name, df in dfs_to_export.items():
             output_path = os.path.join(output_directory, f"{name}.pkl")
             df.to_pickle(output_path)
         print(f"✅ PCA results successfully exported as pickle files in '{output_directory}'")
-
+    
     else:
         raise ValueError("filetype must be either 'xlsx' or 'pkl'")
         
 #%%
 def export_stats(stats_results, output_directory: str, filename: str = "stats_results", 
-                filetype: str = "xlsx", include_pairwise: bool = True):
+                filetype: str = "xlsx"):
     """
-    Export statistical test results to Excel or Pickle files.
+    Export statistical summary results to Excel or Pickle files.
     
-    This function can handle results from:
-    - test_pc_significance() - single PC test
-    - multi_stat() - multiple PC tests
-    - test_pc_significance_grouped_means() - single PC with grouped means
-    - multi_stat_grouped_means() - multiple PC tests with grouped means
+    IMPORTANT: When mean_by is used, the exported statistics are calculated on 
+    the pivot table values (mean of means, SD of means), NOT the raw data.
+    
+    For example, if mean_by='Chip' and group_by='Day':
+    - The 'Mean' column shows the average of all Chip means within each Day
+    - The 'Std' column shows the SD of Chip means within each Day
+    - This is the same as taking the column means/SDs from the pivot table
     
     Parameters
     ----------
     stats_results : dict or list
-        Statistical results from test functions
-        - dict: single PC test result
-        - list: results from multi_stat or multi_stat_grouped_means
+        Statistical results from test_pca_statistics
     output_directory : str
         Folder where exported files will be saved
     filename : str, default="stats_results"
         Base name for output file(s)
     filetype : {'xlsx', 'pkl'}, default='xlsx'
         Output file type (Excel or Pickle)
-    include_pairwise : bool, default=True
-        Include pairwise comparison results if available
-    
-    Returns
-    -------
-    None
-    
-    Examples
-    --------
-    # Single PC test
-    result = test_pc_significance(pca_results, categoricals, 'Treatment', pc_number=1)
-    export_stats(result, './output', 'pc1_treatment')
-    
-    # Multiple PCs
-    results = multi_stat(pca_results, categoricals, 'Treatment', max_PC=5)
-    export_stats(results, './output', 'multi_pc_treatment')
-    
-    # Grouped means (single or multiple)
-    result = test_pc_significance_grouped_means(pca_results, categoricals, 
-                                                 'Day', 'Chip', pc_number=1)
-    export_stats(result, './output', 'pc1_day_by_chip')
     """
     
-    # --- Setup ---
+    # Setup
     os.makedirs(output_directory, exist_ok=True)
     
-    # Determine if input is single result (dict) or multiple results (list)
+    # Determine if single or multiple results
     is_multi = isinstance(stats_results, list)
     results_list = stats_results if is_multi else [stats_results]
     
-    # --- Prepare summary DataFrame ---
+    # Prepare summary DataFrame
     summary_data = []
     
-    for i, result in enumerate(results_list, start=1):
-        pc_num = i if is_multi else result.get('pc_number', 1)
+    for result in results_list:
+        pc_num = result.get('pc_number', 1)
+        group_by = result.get('group_by', 'Unknown')
+        mean_by = result.get('mean_by', None)
         
-        row = {
-            'PC': f'PC{pc_num}',
-            'Test_Type': result.get('test_used', 'Unknown'),
-            'ANOVA_F': result.get('anova_f'),
-            'ANOVA_p': result.get('anova_p'),
-            'T-test_t': result.get('ttest_t'),
-            'T-test_p': result.get('ttest_p'),
-            'Significant': result.get('significant', False)
-        }
+        # Add means and stds
+        means = result.get('group_means', pd.Series())
+        stds = result.get('group_std', pd.Series())
         
-        # Add grouped means info if available
-        if 'group_by' in result and 'mean_by' in result:
-            row['Group_By'] = result['group_by']
-            row['Mean_By'] = result['mean_by']
-        
-        summary_data.append(row)
+        for group in means.index:
+            row = {
+                'PC': f'PC{pc_num}',
+                'Group_By': group_by,
+                'Mean_By': mean_by if mean_by else 'N/A',
+                'Group': group,
+                'Mean': means.loc[group],
+                'Std': stds.loc[group]
+            }
+            
+            # Add note if mean_by was used
+            if mean_by:
+                row['Note'] = f'Mean/SD of {mean_by} means'
+            else:
+                row['Note'] = 'Raw data statistics'
+            
+            summary_data.append(row)
     
     summary_df = pd.DataFrame(summary_data)
     
-    # --- Prepare group statistics DataFrame ---
-    group_stats_data = []
+    # Prepare pivot tables (if available)
+    pivot_data = {}
+    for i, result in enumerate(results_list):
+        if result.get('pivot_table') is not None:
+            pc_num = result.get('pc_number', i + 1)
+            pivot_data[f'PC{pc_num}_pivot'] = result['pivot_table']
     
-    for i, result in enumerate(results_list, start=1):
-        pc_num = i if is_multi else result.get('pc_number', 1)
-        
-        # Handle regular group means
-        if 'group_means' in result and isinstance(result['group_means'], pd.Series):
-            for group, mean_val in result['group_means'].items():
-                std_val = result.get('group_std', {}).get(group, np.nan)
-                group_stats_data.append({
-                    'PC': f'PC{pc_num}',
-                    'Group': group,
-                    'Mean': mean_val,
-                    'Std': std_val
-                })
-        
-        # Handle grouped means (from test_pc_significance_grouped_means)
-        elif 'group_means' in result and isinstance(result['group_means'], pd.DataFrame):
-            grouped_df = result['group_means']
-            for _, row in grouped_df.iterrows():
-                group_stats_data.append({
-                    'PC': f'PC{pc_num}',
-                    'Group': row.get('group_by', 'N/A'),
-                    'Mean_By': row.get('mean_by', 'N/A'),
-                    'Mean': row.get('mean_score', np.nan)
-                })
-    
-    group_stats_df = pd.DataFrame(group_stats_data) if group_stats_data else None
-    
-    # --- Prepare pairwise comparisons DataFrame ---
-    pairwise_df = None
-    
-    if include_pairwise:
-        pairwise_data = []
-        
-        for i, result in enumerate(results_list, start=1):
-            pc_num = i if is_multi else result.get('pc_number', 1)
-            
-            if 'pairwise_results' in result and result['pairwise_results']:
-                for pair in result['pairwise_results']:
-                    pairwise_data.append({
-                        'PC': f'PC{pc_num}',
-                        'Group1': pair['Group1'],
-                        'Group2': pair['Group2'],
-                        'p_value': pair['p_value'],
-                        'Significant': pair['significant']
-                    })
-        
-        if pairwise_data:
-            pairwise_df = pd.DataFrame(pairwise_data)
-    
-    # --- Export logic ---
-    dfs_to_export = {
-        'summary': summary_df
-    }
-    
-    if group_stats_df is not None and not group_stats_df.empty:
-        dfs_to_export['group_statistics'] = group_stats_df
-    
-    if pairwise_df is not None and not pairwise_df.empty:
-        dfs_to_export['pairwise_comparisons'] = pairwise_df
+    # Export logic
+    dfs_to_export = {'summary': summary_df}
+    dfs_to_export.update(pivot_data)
     
     if filetype.lower() == "xlsx":
         output_path = os.path.join(output_directory, f"{filename}.xlsx")
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             for sheet_name, df in dfs_to_export.items():
-                df.to_excel(writer, sheet_name=sheet_name[:31], index=False)
+                df.to_excel(writer, sheet_name=sheet_name[:31], index=(sheet_name != 'summary'))
         
         print(f"✅ Statistical results successfully exported to '{output_path}'")
         print(f"   Sheets included: {list(dfs_to_export.keys())}")
@@ -1395,24 +1158,22 @@ def export_stats(stats_results, output_directory: str, filename: str = "stats_re
     
     # Print summary to console
     print("\n" + "="*70)
-    print("STATISTICAL RESULTS SUMMARY")
+    print("SUMMARY STATISTICS")
     print("="*70)
     print(summary_df.to_string(index=False))
     
-    if group_stats_df is not None and not group_stats_df.empty:
+    # Print explanation if mean_by was used
+    if any(r.get('mean_by') is not None for r in results_list):
         print("\n" + "="*70)
-        print("GROUP STATISTICS")
+        print("⚠ IMPORTANT NOTE ON STATISTICS WITH mean_by:")
         print("="*70)
-        print(group_stats_df.to_string(index=False))
-    
-    if pairwise_df is not None and not pairwise_df.empty and len(pairwise_df) <= 20:
-        print("\n" + "="*70)
-        print("PAIRWISE COMPARISONS")
-        print("="*70)
-        print(pairwise_df.to_string(index=False))
-    elif pairwise_df is not None and not pairwise_df.empty:
-        print(f"\n({len(pairwise_df)} pairwise comparisons - see exported file for details)")
-
+        print("When mean_by is specified, the statistics are calculated on pivot table values:")
+        print("  - Mean = average of the means across mean_by levels")
+        print("  - Std = standard deviation of the means across mean_by levels")
+        print("\nExample: If mean_by='Chip' and group_by='Day':")
+        print("  Day1 Mean = average of (Chip1_Day1_mean, Chip2_Day1_mean, ...)")
+        print("  Day1 Std = SD of (Chip1_Day1_mean, Chip2_Day1_mean, ...)")
+        print("\nTo verify: Check the pivot table sheets and calculate column means/SDs")
     
 #%%    
 # Example usage:
