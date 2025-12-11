@@ -809,7 +809,7 @@ def test_pca_statistics(pca_results, group_by=None, mean_by=None,
             print(f"PC{i} Visualization")
             print(f"{'='*70}")
             result = test_pca_statistics(
-                pca_results, categoricals=categoricals, group_by=group_by, mean_by=mean_by,
+                pca_results, group_by=group_by, mean_by=mean_by,
                 pc_number=i, max_pc=None
             )
             results_list.append(result)
