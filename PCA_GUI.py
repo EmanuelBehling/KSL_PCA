@@ -274,36 +274,41 @@ class PCAAnalysisGUI:
         
         ttk.Label(frame, text="Note: Categorical data included automatically", foreground="gray", font=('TkDefaultFont', 8)).grid(row=7, column=0, columnspan=3, sticky='w', pady=2, padx=20)
         
-        ttk.Button(frame, text="Export PCA Results", command=self.export_pca_results).grid(row=8, column=0, columnspan=3, pady=10)
+        ttk.Label(frame, text="Export Filename:").grid(row=8, column=0, sticky='w', pady=5, padx=20)
+        self.pca_export_filename = ttk.Entry(frame, width=30)
+        self.pca_export_filename.insert(0, "pca_results")
+        self.pca_export_filename.grid(row=8, column=1, sticky='w', padx=5)
         
-        ttk.Separator(frame, orient='horizontal').grid(row=9, column=0, columnspan=3, sticky='ew', pady=10)
+        ttk.Button(frame, text="Export PCA Results", command=self.export_pca_results).grid(row=9, column=0, columnspan=3, pady=10)
+        
+        ttk.Separator(frame, orient='horizontal').grid(row=10, column=0, columnspan=3, sticky='ew', pady=10)
         
         # Statistical Results Export
-        ttk.Label(frame, text="Statistical Results:", font=('TkDefaultFont', 9, 'bold')).grid(row=10, column=0, columnspan=3, sticky='w', pady=(10, 5))
+        ttk.Label(frame, text="Statistical Results:", font=('TkDefaultFont', 9, 'bold')).grid(row=11, column=0, columnspan=3, sticky='w', pady=(10, 5))
         
         ttk.Label(frame, text="Includes: Group means, SDs, and pivot tables (if mean_by used)", 
-                 foreground="gray", font=('TkDefaultFont', 8), wraplength=400, justify='left').grid(row=11, column=0, columnspan=3, sticky='w', pady=2, padx=20)
+                 foreground="gray", font=('TkDefaultFont', 8), wraplength=400, justify='left').grid(row=12, column=0, columnspan=3, sticky='w', pady=2, padx=20)
         
-        ttk.Label(frame, text="Export Filename:").grid(row=12, column=0, sticky='w', pady=5, padx=20)
+        ttk.Label(frame, text="Export Filename:").grid(row=13, column=0, sticky='w', pady=5, padx=20)
         self.stats_export_filename = ttk.Entry(frame, width=30)
         self.stats_export_filename.insert(0, "descriptive_statistics")
-        self.stats_export_filename.grid(row=12, column=1, sticky='w', padx=5)
+        self.stats_export_filename.grid(row=13, column=1, sticky='w', padx=5)
         
-        ttk.Button(frame, text="Export Statistical Results", command=self.export_stats_results).grid(row=13, column=0, columnspan=3, pady=10)
+        ttk.Button(frame, text="Export Statistical Results", command=self.export_stats_results).grid(row=14, column=0, columnspan=3, pady=10)
         
-        ttk.Separator(frame, orient='horizontal').grid(row=14, column=0, columnspan=3, sticky='ew', pady=10)
+        ttk.Separator(frame, orient='horizontal').grid(row=15, column=0, columnspan=3, sticky='ew', pady=10)
         
         # File format
-        ttk.Label(frame, text="File Format:").grid(row=15, column=0, sticky='w', pady=5)
+        ttk.Label(frame, text="File Format:").grid(row=16, column=0, sticky='w', pady=5)
         self.export_filetype = tk.StringVar(value='xlsx')
         
         filetype_frame = ttk.Frame(frame)
-        filetype_frame.grid(row=15, column=1, columnspan=2, sticky='w', pady=5)
+        filetype_frame.grid(row=16, column=1, columnspan=2, sticky='w', pady=5)
         ttk.Radiobutton(filetype_frame, text="Excel (.xlsx)", variable=self.export_filetype, value='xlsx').pack(side='left', padx=5)
         ttk.Radiobutton(filetype_frame, text="Pickle (.pkl)", variable=self.export_filetype, value='pkl').pack(side='left', padx=5)
         
         self.export_status = ttk.Label(frame, text="Ready to export", foreground="blue")
-        self.export_status.grid(row=16, column=0, columnspan=3, pady=10)
+        self.export_status.grid(row=17, column=0, columnspan=3, pady=10)
         
     # Helper methods
     def browse_file(self):
@@ -449,7 +454,6 @@ class PCAAnalysisGUI:
             mean_by_val = self.mean_by.get() if self.mean_by.get() else None
             max_pc_val = int(self.max_stat_pc.get()) if self.max_stat_pc.get().strip() else None
             pc_num = int(self.stat_pc.get())
-
             
             # Call simplified statistics function
             self.stats_results = test_pca_statistics(
@@ -467,7 +471,7 @@ class PCAAnalysisGUI:
             self.stats_status.config(text="Error during statistical analysis", foreground="red")
     
     def export_pca_results(self):
-        """Export PCA results"""
+        """Export PCA results - updated to work with new export_data function"""
         if self.pca_results is None:
             messagebox.showerror("Error", "Please run PCA analysis first")
             return
@@ -480,18 +484,23 @@ class PCAAnalysisGUI:
             self.export_status.config(text="Exporting PCA results...", foreground="orange")
             self.root.update()
             
-            cats_to_export = self.pca_results.get('outlier_cats', self.categoricals)
-            if cats_to_export is None:
-                cats_to_export = self.categoricals
+            # Get filename from entry widget
+            filename = self.pca_export_filename.get().strip()
+            if not filename:
+                filename = "pca_results"
+            
+            # Remove extension if user added it
+            if filename.endswith('.xlsx') or filename.endswith('.pkl'):
+                filename = filename.rsplit('.', 1)[0]
             
             export_data(
                 pca_results=self.pca_results,
-                categoricals=cats_to_export,
                 output_directory=self.export_dir.get(),
                 scores=self.export_scores.get(),
                 loadings=self.export_loadings.get(),
                 ex_variance=self.export_variance.get(),
-                filetype=self.export_filetype.get()
+                filetype=self.export_filetype.get(),
+                filename=filename  # This parameter wasn't being used in export_data!
             )
             
             self.export_status.config(text="✓ PCA export completed", foreground="green")
@@ -533,4 +542,3 @@ if __name__ == "__main__":
     root = tk.Tk()
     app = PCAAnalysisGUI(root)
     root.mainloop()
-

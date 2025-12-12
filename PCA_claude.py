@@ -749,6 +749,12 @@ def plot_loadings(pca_results, n_components=[1, 2], figsize=(12, 6)):
     return loadings.iloc[:, valid_indices]
 
 #%%
+def multi_loadings(pca_results, max_PC=5):
+    for n,i in combinations(range(1, max_PC+1), r=2):
+        plot_loadings(pca_results, n_components=[n, i], figsize=(12, 6))
+        
+
+#%%
 def test_pca_statistics(pca_results, group_by=None, mean_by=None, 
                         pc_number=1, max_pc=None):
     """
@@ -982,16 +988,12 @@ def test_pca_statistics(pca_results, group_by=None, mean_by=None,
         'outlier_counts': outlier_counts if outlier_counts else None  # Track hidden groups
     }
 
-#%%
-def multi_loadings(pca_results, max_PC=5):
-    for n,i in combinations(range(1,max_PC), r=2):
-        plot_loadings(pca_results, n_components=[n, i], figsize=(12, 6))
-        
+
 #%%  
-def export_data(pca_results: dict, categoricals: pd.DataFrame, 
+def export_data(pca_results: dict, 
                 output_directory: str, scores: bool = True, 
                 loadings: bool = True, ex_variance: bool = True, 
-                filetype: str = "xlsx"):
+                filetype: str = "xlsx", filename: str = "pca_results"):
     """
     Export PCA results and associated data to Excel or Pickle files.
     
@@ -1009,17 +1011,33 @@ def export_data(pca_results: dict, categoricals: pd.DataFrame,
         Export explained variance ratios
     filetype : {'xlsx', 'pkl'}, default='xlsx'
         Output file type (Excel or Pickle)
+    
+    Notes
+    -----
+    - Categoricals are automatically extracted from pca_results
+    - If outliers were removed, the cleaned categoricals are used
+    - The function prioritizes 'outlier_cats' over 'categoricals' if both exist
     """
     
     # --- Safety and setup ---
     os.makedirs(output_directory, exist_ok=True)
     
-    # Always use the categoricals the PCA function returned
-    cat_df = pca_results.get("categoricals", None)
-    
-    if cat_df is None or not isinstance(cat_df, pd.DataFrame) or cat_df.empty:
+    # Auto-extract categoricals from pca_results (prioritize cleaned version)
+    if "outlier_cats" in pca_results and isinstance(pca_results["outlier_cats"], pd.DataFrame):
+        cat_df = pca_results["outlier_cats"]
+        print("✓ Using cleaned categoricals from pca_results['outlier_cats']")
+    elif "categoricals" in pca_results and isinstance(pca_results["categoricals"], pd.DataFrame):
+        cat_df = pca_results["categoricals"]
+        print("✓ Using original categoricals from pca_results['categoricals']")
+    else:
         print("Warning: No valid categoricals found in pca_results. Skipping categorical export.")
         cat_df = None
+    
+    # Validate that categoricals match scores length
+    if cat_df is not None and "scores" in pca_results:
+        if len(cat_df) != len(pca_results["scores"]):
+            print(f"Warning: Categoricals length ({len(cat_df)}) doesn't match scores length ({len(pca_results['scores'])})")
+            print("This shouldn't happen - categoricals should be auto-aligned by perform_pca()")
     
     # --- Prepare export content ---
     dfs_to_export = {}
@@ -1045,20 +1063,25 @@ def export_data(pca_results: dict, categoricals: pd.DataFrame,
     
     # --- Export logic ---
     if filetype.lower() == "xlsx":
-        output_path = os.path.join(output_directory, "pca_results.xlsx")
+        output_path = os.path.join(output_directory, f"{filename}.xlsx")  # Use filename parameter
         with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
             for name, df in dfs_to_export.items():
-                df.to_excel(writer, sheet_name=name[:31])  # Excel sheet name limit
+                df.to_excel(writer, sheet_name=name[:31])
         print(f"✅ PCA results successfully exported to '{output_path}'")
     
     elif filetype.lower() in ["pkl", "pickle"]:
         for name, df in dfs_to_export.items():
-            output_path = os.path.join(output_directory, f"{name}.pkl")
+            output_path = os.path.join(output_directory, f"{filename}_{name}.pkl")  # Use filename parameter
             df.to_pickle(output_path)
         print(f"✅ PCA results successfully exported as pickle files in '{output_directory}'")
     
     else:
         raise ValueError("filetype must be either 'xlsx' or 'pkl'")
+    
+    # Print summary of what was exported
+    print("\nExported data sheets:")
+    for name, df in dfs_to_export.items():
+        print(f"  - {name}: {df.shape[0]} rows × {df.shape[1]} columns")
         
 #%%
 def export_stats(stats_results, output_directory: str, filename: str = "stats_results", 
